@@ -9,7 +9,7 @@
 -->
 <Dependencies>
   <ProductDependencies>
-    <Dependency Name="Microsoft.AspNetCore.Blazor.Mono" Version="0.10.0-preview7.19324.2">
+    <Dependency Name="Microsoft.AspNetCore.Blazor.Mono" Version="0.10.0-dev" Pinned="true">
       <Uri>https://github.com/aspnet/Blazor</Uri>
       <Sha>22f3483fdbbb4e72865574cd215af93f155cf574</Sha>
     </Dependency>
@@ -29,33 +29,33 @@
       <Uri>https://github.com/aspnet/AspNetCore-Tooling</Uri>
       <Sha>87c12a116c724696783b62e5552d1ea4862e5715</Sha>
     </Dependency>
-    <Dependency Name="dotnet-ef" Version="3.0.0-preview7.19326.2">
+    <Dependency Name="dotnet-ef" Version="3.0.0-preview7.19327.1">
       <Uri>https://github.com/aspnet/EntityFrameworkCore</Uri>
-      <Sha>7ac8e3465719892911e9fb69ae004966eee745eb</Sha>
+      <Sha>95c1c5496426ed7b45c31d993f9259d8f18cba72</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.EntityFrameworkCore.InMemory" Version="3.0.0-preview7.19326.2">
+    <Dependency Name="Microsoft.EntityFrameworkCore.InMemory" Version="3.0.0-preview7.19327.1">
       <Uri>https://github.com/aspnet/EntityFrameworkCore</Uri>
-      <Sha>7ac8e3465719892911e9fb69ae004966eee745eb</Sha>
+      <Sha>95c1c5496426ed7b45c31d993f9259d8f18cba72</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.EntityFrameworkCore.Relational" Version="3.0.0-preview7.19326.2">
+    <Dependency Name="Microsoft.EntityFrameworkCore.Relational" Version="3.0.0-preview7.19327.1">
       <Uri>https://github.com/aspnet/EntityFrameworkCore</Uri>
-      <Sha>7ac8e3465719892911e9fb69ae004966eee745eb</Sha>
+      <Sha>95c1c5496426ed7b45c31d993f9259d8f18cba72</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.EntityFrameworkCore.Sqlite" Version="3.0.0-preview7.19326.2">
+    <Dependency Name="Microsoft.EntityFrameworkCore.Sqlite" Version="3.0.0-preview7.19327.1">
       <Uri>https://github.com/aspnet/EntityFrameworkCore</Uri>
-      <Sha>7ac8e3465719892911e9fb69ae004966eee745eb</Sha>
+      <Sha>95c1c5496426ed7b45c31d993f9259d8f18cba72</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.EntityFrameworkCore.SqlServer" Version="3.0.0-preview7.19326.2">
+    <Dependency Name="Microsoft.EntityFrameworkCore.SqlServer" Version="3.0.0-preview7.19327.1">
       <Uri>https://github.com/aspnet/EntityFrameworkCore</Uri>
-      <Sha>7ac8e3465719892911e9fb69ae004966eee745eb</Sha>
+      <Sha>95c1c5496426ed7b45c31d993f9259d8f18cba72</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.EntityFrameworkCore.Tools" Version="3.0.0-preview7.19326.2">
+    <Dependency Name="Microsoft.EntityFrameworkCore.Tools" Version="3.0.0-preview7.19327.1">
       <Uri>https://github.com/aspnet/EntityFrameworkCore</Uri>
-      <Sha>7ac8e3465719892911e9fb69ae004966eee745eb</Sha>
+      <Sha>95c1c5496426ed7b45c31d993f9259d8f18cba72</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.EntityFrameworkCore" Version="3.0.0-preview7.19326.2">
+    <Dependency Name="Microsoft.EntityFrameworkCore" Version="3.0.0-preview7.19327.1">
       <Uri>https://github.com/aspnet/EntityFrameworkCore</Uri>
-      <Sha>7ac8e3465719892911e9fb69ae004966eee745eb</Sha>
+      <Sha>95c1c5496426ed7b45c31d993f9259d8f18cba72</Sha>
     </Dependency>
     <Dependency Name="Microsoft.AspNetCore.Analyzer.Testing" Version="3.0.0-preview7.19326.3" CoherentParentDependency="Microsoft.EntityFrameworkCore">
       <Uri>https://github.com/aspnet/Extensions</Uri>
@@ -285,11 +285,11 @@
       <Uri>https://github.com/aspnet/Extensions</Uri>
       <Sha>8c6d69570722ee4cd6583cbb4af2a9c74c8c10dc</Sha>
     </Dependency>
-    <Dependency Name="Microsoft.JSInterop" Version="3.0.0-preview7.19326.3" CoherentParentDependency="Microsoft.EntityFrameworkCore">
+    <Dependency Name="Microsoft.JSInterop" Version="3.0.0-dev" Pinned="true" CoherentParentDependency="Microsoft.EntityFrameworkCore">
       <Uri>https://github.com/aspnet/Extensions</Uri>
       <Sha>8c6d69570722ee4cd6583cbb4af2a9c74c8c10dc</Sha>
     </Dependency>
-    <Dependency Name="Mono.WebAssembly.Interop" Version="3.0.0-preview7.19326.3" CoherentParentDependency="Microsoft.EntityFrameworkCore">
+    <Dependency Name="Mono.WebAssembly.Interop" Version="3.0.0-dev" Pinned="true" CoherentParentDependency="Microsoft.EntityFrameworkCore">
       <Uri>https://github.com/aspnet/Extensions</Uri>
       <Sha>8c6d69570722ee4cd6583cbb4af2a9c74c8c10dc</Sha>
     </Dependency>
