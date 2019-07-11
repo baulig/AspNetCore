@@ -313,6 +313,11 @@
   -->
 
   <PropertyGroup>
+    <LinkBlazorApplicationDependsOn>
+      _GenerateLinkerDescriptor;
+      _CollectBlazorLinkerDescriptors;
+    </LinkBlazorApplicationDependsOn>
+
     <_CollectLinkerOutputsDependsOn>
       _GenerateLinkerDescriptor;
       _CollectBlazorLinkerDescriptors;
@@ -401,7 +406,9 @@
   <Target
       Name="_LinkBlazorApplication"
       Condition="$(_BlazorShouldLinkApplicationAssemblies) != ''"
+      DependsOnTargets="$(LinkBlazorApplicationDependsOn)"
       Inputs="$(BlazorBuildLinkerInputsCache);
+              @(BlazorBuildLinkerExtraInputs);
               @(IntermediateAssembly);
               @(_BlazorDependencyInput);
               @(BlazorLinkerDescriptor)"
@@ -429,7 +436,7 @@
     </ItemGroup>
 
     <PropertyGroup>
-      <_BlazorLinkerAdditionalOptions>-l $(MonoLinkerI18NAssemblies) $(AdditionalMonoLinkerOptions)</_BlazorLinkerAdditionalOptions>
+      <_BlazorLinkerAdditionalOptions>$(AdditionalMonoLinkerOptions) -l $(MonoLinkerI18NAssemblies)</_BlazorLinkerAdditionalOptions>
     </PropertyGroup>
 
     <!-- Clear the contents of /obj/<<configuration>>/<<targetframework>>/blazor/blazor/linker -->
