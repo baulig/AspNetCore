@@ -127,7 +127,6 @@
                           $(RepoRoot)src\Framework\test\Microsoft.AspNetCore.App.UnitTests.csproj;
                           $(RepoRoot)src\DefaultBuilder\**\*.*proj;
                           $(RepoRoot)src\Features\JsonPatch\**\*.*proj;
-                          $(RepoRoot)src\DataProtection\**\*.*proj;
                           $(RepoRoot)src\Antiforgery\**\*.*proj;
                           $(RepoRoot)src\Hosting\**\*.*proj;
                           $(RepoRoot)src\Http\**\*.*proj;
@@ -138,7 +137,6 @@
                           $(RepoRoot)src\SiteExtensions\Microsoft.Web.Xdt.Extensions\**\*.csproj;
                           $(RepoRoot)src\Shared\**\*.*proj;
                           $(RepoRoot)src\Tools\**\*.*proj;
-                          $(RepoRoot)src\Middleware\**\*.csproj;
                           $(RepoRoot)src\Razor\**\*.*proj;
                           $(RepoRoot)src\Mvc\**\*.*proj;
                           $(RepoRoot)src\Azure\**\*.*proj;
