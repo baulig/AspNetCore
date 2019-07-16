@@ -261,7 +261,7 @@
       $(RestoreSources);
       /Workspace/Blazor/Blazor/artifacts/packages/Debug/Shipping/;
       /Workspace/Blazor/Extensions/artifacts/packages/Debug/Shipping/;
-      /Workspace/Blazor/Extensions/artifacts/packages/Debug/NonShipping\;
+      /Workspace/Blazor/Extensions/artifacts/packages/Debug/NonShipping/;
       https://dotnet.myget.org/F/aspnetcore-dev/api/v3/index.json;
     </RestoreSources>
     <!-- In an orchestrated build, this may be overriden to other Azure feeds. -->
