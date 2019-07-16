@@ -251,10 +251,6 @@
     <RestoreSources Condition=" '$(DotNetBuildOffline)' != 'true' ">
       $(RestoreSources);
       https://dotnetfeed.blob.core.windows.net/dotnet-core/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-blazor/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-extensions/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-entityframeworkcore/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-aspnetcore-tooling/index.json;
       https://grpc.jfrog.io/grpc/api/nuget/v3/grpc-nuget-dev;
     </RestoreSources>
     <RestoreSources Condition="'$(DotNetBuildOffline)' != 'true' AND $(MicrosoftNetCompilersToolsetPackageVersion.Contains('-')) ">
