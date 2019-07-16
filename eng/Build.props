@@ -24,6 +24,12 @@
     <!-- Exclude the websockets samples for now because they use classic .csproj, which is not yet supported in our build. -->
     <ProjectToExclude Include="$(RepoRoot)src\Middleware\WebSockets\samples\**\*.csproj" />
 
+    <ProjectToExclude Include="
+                      $(RepoRoot)src\Identity\test\**\*.*proj;
+                      $(RepoRoot)src\Identity\ApiAuthorization.IdentityServer\**\*.*proj;
+                      $(RepoRoot)src\Mvc\samples\**\*.*proj;
+                      " />
+
     <!-- These projects are meant to be executed by tests. -->
     <ProjectToExclude Include="
                       $(RepoRoot)src\Tools\dotnet-watch\test\TestProjects\**\*.csproj;
