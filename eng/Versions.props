@@ -157,10 +157,10 @@
     <MicrosoftEntityFrameworkCoreToolsPackageVersion>3.0.0-dev</MicrosoftEntityFrameworkCoreToolsPackageVersion>
     <MicrosoftEntityFrameworkCorePackageVersion>3.0.0-dev</MicrosoftEntityFrameworkCorePackageVersion>
     <!-- Packages from aspnet/AspNetCore-Tooling -->
-    <MicrosoftAspNetCoreMvcRazorExtensionsPackageVersion>3.0.0-preview8.19364.3</MicrosoftAspNetCoreMvcRazorExtensionsPackageVersion>
-    <MicrosoftAspNetCoreRazorLanguagePackageVersion>3.0.0-preview8.19364.3</MicrosoftAspNetCoreRazorLanguagePackageVersion>
-    <MicrosoftCodeAnalysisRazorPackageVersion>3.0.0-preview8.19364.3</MicrosoftCodeAnalysisRazorPackageVersion>
-    <MicrosoftNETSdkRazorPackageVersion>3.0.0-preview8.19364.3</MicrosoftNETSdkRazorPackageVersion>
+    <MicrosoftAspNetCoreMvcRazorExtensionsPackageVersion>3.0.0-dev</MicrosoftAspNetCoreMvcRazorExtensionsPackageVersion>
+    <MicrosoftAspNetCoreRazorLanguagePackageVersion>3.0.0-dev</MicrosoftAspNetCoreRazorLanguagePackageVersion>
+    <MicrosoftCodeAnalysisRazorPackageVersion>3.0.0-dev</MicrosoftCodeAnalysisRazorPackageVersion>
+    <MicrosoftNETSdkRazorPackageVersion>3.0.0-dev</MicrosoftNETSdkRazorPackageVersion>
   </PropertyGroup>
   <!--
 
@@ -265,9 +265,10 @@
     <RestoreSources>
       $(RestoreSources);
       /Workspace/Blazor/Blazor/artifacts/packages/Debug/Shipping/;
+      /Workspace/Blazor/AspNetCore-Tooling/artifacts/packages/Debug/Shipping/;
       /Workspace/Blazor/EntityFrameworkCore/artifacts/packages/Debug/Shipping/;
       /Workspace/Blazor/Extensions/artifacts/packages/Debug/Shipping/;
-      /Workspace/Blazor/Extensions/artifacts/packages/Debug/NonShipping\;
+      /Workspace/Blazor/Extensions/artifacts/packages/Debug/NonShipping/;
       https://dotnet.myget.org/F/aspnetcore-dev/api/v3/index.json;
     </RestoreSources>
     <!-- In an orchestrated build, this may be overriden to other Azure feeds. -->
