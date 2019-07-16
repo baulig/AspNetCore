@@ -53,7 +53,7 @@
     KeyCasesTreeNode.Node parsedRootNode;
     RenderContext renderContext = new RenderContext();
 
-    protected override void OnInit()
+    protected override void OnInitialized()
     {
         Update();
     }
@@ -61,7 +61,7 @@
     void Update()
     {
         renderContext.UpdateCount++;
-        parsedRootNode = JsonSerializer.Parse<KeyCasesTreeNode.Node>(modelJson, TestJsonSerializerOptionsProvider.Options);
+        parsedRootNode = JsonSerializer.Deserialize<KeyCasesTreeNode.Node>(modelJson, TestJsonSerializerOptionsProvider.Options);
     }
 
     public class RenderContext
