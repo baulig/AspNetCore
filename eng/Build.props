@@ -44,6 +44,11 @@
                       $(RepoRoot)src\SignalR\perf\benchmarkapps\**\*.csproj;
                       " />
 
+    <!-- MARTIN FIXME -->
+    <ProjectToExclude Include="
+                      $(RepoRoot)src\Identity\ApiAuthorization.IdentityServer\**\*.csproj;
+                      " />
+
   </ItemGroup>
 
   <Choose>
