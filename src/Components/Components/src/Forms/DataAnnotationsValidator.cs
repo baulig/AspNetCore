@@ -13,13 +13,13 @@ namespace Microsoft.AspNetCore.Components.Forms
         [CascadingParameter] EditContext CurrentEditContext { get; set; }
 
         /// <inheritdoc />
-        protected override void OnInit()
+        protected override void OnInitialized()
         {
             if (CurrentEditContext == null)
             {
                 throw new InvalidOperationException($"{nameof(DataAnnotationsValidator)} requires a cascading " +
                     $"parameter of type {nameof(EditContext)}. For example, you can use {nameof(DataAnnotationsValidator)} " +
-                    $"inside an {nameof(EditForm)}.");
+                    $"inside an EditForm.");
             }
 
             CurrentEditContext.AddDataAnnotationsValidation();

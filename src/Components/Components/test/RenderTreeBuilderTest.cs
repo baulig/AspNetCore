@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.RenderTree;
 using Microsoft.AspNetCore.Components.Test.Helpers;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -398,7 +399,7 @@ namespace Microsoft.AspNetCore.Components.Test
         }
 
         [Fact]
-        public void CannotAddEventHandlerAttributeAtRoot()
+        public void CannotAddDelegateAttributeAtRoot()
         {
             // Arrange
             var builder = new RenderTreeBuilder(new TestRenderer());
@@ -406,7 +407,7 @@ namespace Microsoft.AspNetCore.Components.Test
             // Act/Assert
             Assert.Throws<InvalidOperationException>(() =>
             {
-                builder.AddAttribute(0, "name", eventInfo => { });
+                builder.AddAttribute(0, "name", new Action<string>(text => { }));
             });
         }
 
@@ -436,7 +437,7 @@ namespace Microsoft.AspNetCore.Components.Test
             {
                 builder.OpenElement(0, "some element");
                 builder.AddContent(1, "hello");
-                builder.AddAttribute(2, "name", eventInfo => { });
+                builder.AddAttribute(2, "name", new Action<UIEventArgs>(eventInfo => { }));
             });
         }
 
@@ -599,7 +600,7 @@ namespace Microsoft.AspNetCore.Components.Test
         {
             // Arrange
             var builder = new RenderTreeBuilder(new TestRenderer());
-            Action<ElementRef> referenceCaptureAction = elementRef => { };
+            Action<ElementReference> referenceCaptureAction = elementReference => { };
 
             // Act
             builder.OpenElement(0, "myelement");                    //  0: <myelement
@@ -667,8 +668,8 @@ namespace Microsoft.AspNetCore.Components.Test
 
             // Arrange
             var builder = new RenderTreeBuilder(new TestRenderer());
-            Action<ElementRef> referenceCaptureAction1 = elementRef => { };
-            Action<ElementRef> referenceCaptureAction2 = elementRef => { };
+            Action<ElementReference> referenceCaptureAction1 = elementReference => { };
+            Action<ElementReference> referenceCaptureAction2 = elementReference => { };
 
             // Act
             builder.OpenElement(0, "myelement");
@@ -688,7 +689,7 @@ namespace Microsoft.AspNetCore.Components.Test
         {
             // Arrange
             var builder = new RenderTreeBuilder(new TestRenderer());
-            Action<object> myAction = elementRef => { };
+            Action<object> myAction = elementReference => { };
 
             // Act
             builder.OpenComponent<TestComponent>(0);                //  0: <TestComponent
@@ -756,8 +757,8 @@ namespace Microsoft.AspNetCore.Components.Test
 
             // Arrange
             var builder = new RenderTreeBuilder(new TestRenderer());
-            Action<object> referenceCaptureAction1 = elementRef => { };
-            Action<object> referenceCaptureAction2 = elementRef => { };
+            Action<object> referenceCaptureAction1 = elementReference => { };
+            Action<object> referenceCaptureAction2 = elementReference => { };
 
             // Act
             builder.OpenComponent<TestComponent>(0);
@@ -1557,22 +1558,45 @@ namespace Microsoft.AspNetCore.Components.Test
         }
 
         [Fact]
-        public void CannotAddNullKey()
+        public void IgnoresNullElementKey()
         {
-            // Although we could translate 'null' into either some default "null key"
-            // instance, or just no-op the call, it almost certainly indicates a programming
-            // error so it's better to fail.
-
             // Arrange
             var builder = new RenderTreeBuilder(new TestRenderer());
 
-            // Act/Assert
-            var ex = Assert.Throws<ArgumentNullException>(() =>
-            {
-                builder.OpenElement(0, "elem");
-                builder.SetKey(null);
-            });
-            Assert.Equal("value", ex.ParamName);
+            // Act
+            builder.OpenElement(0, "elem");
+            builder.SetKey(null);
+            builder.CloseElement();
+
+            // Assert
+            Assert.Collection(
+                builder.GetFrames().AsEnumerable(),
+                frame =>
+                {
+                    AssertFrame.Element(frame, "elem", 1, 0);
+                    Assert.Null(frame.ElementKey);
+                });
+        }
+
+        [Fact]
+        public void IgnoresNullComponentKey()
+        {
+            // Arrange
+            var builder = new RenderTreeBuilder(new TestRenderer());
+
+            // Act
+            builder.OpenComponent<TestComponent>(0);
+            builder.SetKey(null);
+            builder.CloseComponent();
+
+            // Assert
+            Assert.Collection(
+                builder.GetFrames().AsEnumerable(),
+                frame =>
+                {
+                    AssertFrame.Component<TestComponent>(frame, 1, 0);
+                    Assert.Null(frame.ComponentKey);
+                });
         }
 
         [Fact]
@@ -1601,7 +1625,7 @@ namespace Microsoft.AspNetCore.Components.Test
         public void ProcessDuplicateAttributes_StopsAtFirstNonAttributeFrame_Capture()
         {
             // Arrange
-            var capture = (Action<ElementRef>)((_) => { });
+            var capture = (Action<ElementReference>)((_) => { });
 
             var builder = new RenderTreeBuilder(new TestRenderer());
             builder.OpenElement(0, "div");
@@ -1786,7 +1810,7 @@ namespace Microsoft.AspNetCore.Components.Test
 
         private class TestComponent : IComponent
         {
-            public void Configure(RenderHandle renderHandle) { }
+            public void Attach(RenderHandle renderHandle) { }
 
             public Task SetParametersAsync(ParameterCollection parameters)
                 => throw new NotImplementedException();
@@ -1794,9 +1818,11 @@ namespace Microsoft.AspNetCore.Components.Test
 
         private class TestRenderer : Renderer
         {
-            public TestRenderer() : base(new TestServiceProvider(), new RendererSynchronizationContext())
+            public TestRenderer() : base(new TestServiceProvider(), NullLoggerFactory.Instance)
             {
             }
+
+            public override Dispatcher Dispatcher { get; } = Dispatcher.CreateDefault();
 
             protected override void HandleException(Exception exception)
                 => throw new NotImplementedException();

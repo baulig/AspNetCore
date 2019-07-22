@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Extensions;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Mvc.ViewFeatures.RazorComponents
 {
@@ -29,15 +30,14 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures.RazorComponents
             HttpContext httpContext,
             Type componentType)
         {
-            var dispatcher = Renderer.CreateDefaultDispatcher();
-
-            InitializeUriHelper(httpContext);
-            using (var htmlRenderer = new HtmlRenderer(httpContext.RequestServices, _encoder.Encode, dispatcher))
+            InitializeStandardComponentServices(httpContext);
+            var loggerFactory = (ILoggerFactory)httpContext.RequestServices.GetService(typeof (ILoggerFactory));
+            using (var htmlRenderer = new HtmlRenderer(httpContext.RequestServices, loggerFactory, _encoder.Encode))
             {
                 ComponentRenderedText result = default;
                 try
                 {
-                    result = await dispatcher.InvokeAsync(() => htmlRenderer.RenderComponentAsync(
+                    result = await htmlRenderer.Dispatcher.InvokeAsync(() => htmlRenderer.RenderComponentAsync(
                         componentType,
                         parameters));
                 }
@@ -62,15 +62,21 @@ namespace Microsoft.AspNetCore.Mvc.ViewFeatures.RazorComponents
             }
         }
 
-        private void InitializeUriHelper(HttpContext httpContext)
+        private void InitializeStandardComponentServices(HttpContext httpContext)
         {
-            // We don't know here if we are dealing with the default HttpUriHelper registered
-            // by MVC or with the RemoteUriHelper registered by AddComponents.
             // This might not be the first component in the request we are rendering, so
-            // we need to check if we already initialized the uri helper in this request.
+            // we need to check if we already initialized the services in this request.
             if (!_initialized)
             {
                 _initialized = true;
+
+                var authenticationStateProvider = httpContext.RequestServices.GetService<AuthenticationStateProvider>() as IHostEnvironmentAuthenticationStateProvider;
+                if (authenticationStateProvider != null)
+                {
+                    var authenticationState = new AuthenticationState(httpContext.User);
+                    authenticationStateProvider.SetAuthenticationState(Task.FromResult(authenticationState));
+                }
+
                 var helper = (UriHelperBase)httpContext.RequestServices.GetRequiredService<IUriHelper>();
                 helper.InitializeState(GetFullUri(httpContext.Request), GetContextBaseUri(httpContext.Request));
             }

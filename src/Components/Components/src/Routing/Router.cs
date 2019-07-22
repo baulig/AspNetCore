@@ -5,8 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Components.Layouts;
 using Microsoft.AspNetCore.Components.RenderTree;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Components.Routing
 {
@@ -22,6 +22,7 @@ namespace Microsoft.AspNetCore.Components.Routing
         string _baseUri;
         string _locationAbsolute;
         bool _navigationInterceptionEnabled;
+        ILogger<Router> _logger;
 
         [Inject] private IUriHelper UriHelper { get; set; }
 
@@ -29,12 +30,14 @@ namespace Microsoft.AspNetCore.Components.Routing
 
         [Inject] private IComponentContext ComponentContext { get; set; }
 
+        [Inject] private ILoggerFactory LoggerFactory { get; set; }
+
         /// <summary>
         /// Gets or sets the assembly that should be searched, along with its referenced
         /// assemblies, for components matching the URI.
         /// </summary>
         [Parameter] public Assembly AppAssembly { get; private set; }
-        
+
         /// <summary>
         /// Gets or sets the type of the component that should be used as a fallback when no match is found for the requested route.
         /// </summary>
@@ -53,8 +56,9 @@ namespace Microsoft.AspNetCore.Components.Routing
         private RouteTable Routes { get; set; }
 
         /// <inheritdoc />
-        public void Configure(RenderHandle renderHandle)
+        public void Attach(RenderHandle renderHandle)
         {
+            _logger = LoggerFactory.CreateLogger<Router>();
             _renderHandle = renderHandle;
             _baseUri = UriHelper.GetBaseUri();
             _locationAbsolute = UriHelper.GetAbsoluteUri();
@@ -65,8 +69,7 @@ namespace Microsoft.AspNetCore.Components.Routing
         public Task SetParametersAsync(ParameterCollection parameters)
         {
             parameters.SetParameterProperties(this);
-            var types = ComponentResolver.ResolveComponents(AppAssembly);
-            Routes = RouteTable.Create(types);
+            Routes = RouteTableFactory.Create(AppAssembly);
             Refresh(isNavigationIntercepted: false);
             return Task.CompletedTask;
         }
@@ -111,12 +114,16 @@ namespace Microsoft.AspNetCore.Components.Routing
                         $"does not implement {typeof(IComponent).FullName}.");
                 }
 
+                Log.NavigatingToComponent(_logger, context.Handler, locationPath, _baseUri);
+
                 _renderHandle.Render(builder => Render(builder, context.Handler, context.Parameters));
             }
             else
             {
                 if (!isNavigationIntercepted && NotFoundContent != null)
                 {
+                    Log.DisplayingNotFoundContent(_logger, locationPath, _baseUri);
+
                     // We did not find a Component that matches the route.
                     // Only show the NotFoundContent if the application developer programatically got us here i.e we did not
                     // intercept the navigation. In all other cases, force a browser navigation since this could be non-Blazor content.
@@ -124,6 +131,7 @@ namespace Microsoft.AspNetCore.Components.Routing
                 }
                 else
                 {
+                    Log.NavigatingToExternalUri(_logger, _locationAbsolute, locationPath, _baseUri);
                     UriHelper.NavigateTo(_locationAbsolute, forceLoad: true);
                 }
             }
@@ -147,6 +155,33 @@ namespace Microsoft.AspNetCore.Components.Routing
             }
 
             return Task.CompletedTask;
+        }
+
+        private static class Log
+        {
+            private static readonly Action<ILogger, string, string, Exception> _displayingNotFoundContent =
+                LoggerMessage.Define<string, string>(LogLevel.Debug, new EventId(1, "DisplayingNotFoundContent"), $"Displaying {nameof(NotFoundContent)} because path '{{Path}}' with base URI '{{BaseUri}}' does not match any component route");
+
+            private static readonly Action<ILogger, Type, string, string, Exception> _navigatingToComponent =
+                LoggerMessage.Define<Type, string, string>(LogLevel.Debug, new EventId(2, "NavigatingToComponent"), "Navigating to component {ComponentType} in response to path '{Path}' with base URI '{BaseUri}'");
+
+            private static readonly Action<ILogger, string, string, string, Exception> _navigatingToExternalUri =
+                LoggerMessage.Define<string, string, string>(LogLevel.Debug, new EventId(3, "NavigatingToExternalUri"), "Navigating to non-component URI '{ExternalUri}' in response to path '{Path}' with base URI '{BaseUri}'");
+
+            internal static void DisplayingNotFoundContent(ILogger logger, string path, string baseUri)
+            {
+                _displayingNotFoundContent(logger, path, baseUri, null);
+            }
+
+            internal static void NavigatingToComponent(ILogger logger, Type componentType, string path, string baseUri)
+            {
+                _navigatingToComponent(logger, componentType, path, baseUri, null);
+            }
+
+            internal static void NavigatingToExternalUri(ILogger logger, string externalUri, string path, string baseUri)
+            {
+                _navigatingToExternalUri(logger, externalUri, path, baseUri, null);
+            }
         }
     }
 }

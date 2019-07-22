@@ -90,7 +90,7 @@ namespace Microsoft.AspNetCore.Http
         private IHttpRequestIdentifierFeature RequestIdentifierFeature =>
             _features.Fetch(ref _features.Cache.RequestIdentifier, _newHttpRequestIdentifierFeature);
 
-        public override IFeatureCollection Features => _features.Collection;
+        public override IFeatureCollection Features => _features.Collection ?? ContextDisposed();
 
         public override HttpRequest Request => _request;
 
@@ -159,7 +159,7 @@ namespace Microsoft.AspNetCore.Http
 
         // This property exists because of backwards compatibility.
         // We send an anonymous object with an HttpContext property
-        // via DiagnosticSource in various events throughout the pipeline. Instead
+        // via DiagnosticListener in various events throughout the pipeline. Instead
         // we just send the HttpContext to avoid extra allocations
         [EditorBrowsable(EditorBrowsableState.Never)]
         public HttpContext HttpContext => this;
@@ -167,6 +167,17 @@ namespace Microsoft.AspNetCore.Http
         public override void Abort()
         {
             LifetimeFeature.Abort();
+        }
+
+        private static IFeatureCollection ContextDisposed()
+        {
+            ThrowContextDisposed();
+            return null;
+        }
+
+        private static void ThrowContextDisposed()
+        {
+            throw new ObjectDisposedException(nameof(HttpContext), $"Request has finished and {nameof(HttpContext)} disposed.");
         }
 
         struct FeatureInterfaces

@@ -2,13 +2,14 @@
 // Licensed under the Apache License, Version 2.0. See License.txt in the project root for license information.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components.Server.Circuits;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Microsoft.AspNetCore.Components.Server
 {
@@ -20,17 +21,23 @@ namespace Microsoft.AspNetCore.Components.Server
         private static readonly object CircuitKey = new object();
         private readonly CircuitFactory _circuitFactory;
         private readonly CircuitRegistry _circuitRegistry;
+        private readonly CircuitOptions _options;
         private readonly ILogger _logger;
 
         /// <summary>
         /// Intended for framework use only. Applications should not instantiate
         /// this class directly.
         /// </summary>
-        public ComponentHub(IServiceProvider services, ILogger<ComponentHub> logger)
+        public ComponentHub(
+            CircuitFactory circuitFactory,
+            CircuitRegistry circuitRegistry,
+            ILogger<ComponentHub> logger,
+            IOptions<CircuitOptions> options)
         {
-            _circuitFactory = services.GetRequiredService<CircuitFactory>();
-            _circuitRegistry = services.GetRequiredService<CircuitRegistry>();
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _circuitFactory = circuitFactory;
+            _circuitRegistry = circuitRegistry;
+            _options = options.Value;
+            _logger = logger;
         }
 
         /// <summary>
@@ -67,13 +74,20 @@ namespace Microsoft.AspNetCore.Components.Server
         /// </summary>
         public string StartCircuit(string uriAbsolute, string baseUriAbsolute)
         {
+            if (CircuitHost != null)
+            {
+                Log.CircuitAlreadyInitialized(_logger, CircuitHost.CircuitId);
+                NotifyClientError(Clients.Caller, $"The circuit host '{CircuitHost.CircuitId}' has already been initialized.");
+                return null;
+            }
+
             var circuitClient = new CircuitClientProxy(Clients.Caller, Context.ConnectionId);
             if (DefaultCircuitFactory.ResolveComponentMetadata(Context.GetHttpContext(), circuitClient).Count == 0)
             {
                 var endpointFeature = Context.GetHttpContext().Features.Get<IEndpointFeature>();
                 var endpoint = endpointFeature?.Endpoint;
 
-                _logger.LogDebug($"No components registered in the current endpoint '{endpoint.DisplayName}'.");
+                Log.NoComponentsRegisteredInEndpoint(_logger, endpoint.DisplayName);
 
                 // No components preregistered so return. This is totally normal if the components were prerendered.
                 return null;
@@ -123,7 +137,44 @@ namespace Microsoft.AspNetCore.Components.Server
         /// </summary>
         public void BeginInvokeDotNetFromJS(string callId, string assemblyName, string methodIdentifier, long dotNetObjectId, string argsJson)
         {
-            EnsureCircuitHost().BeginInvokeDotNetFromJS(callId, assemblyName, methodIdentifier, dotNetObjectId, argsJson);
+            if (CircuitHost == null)
+            {
+                Log.CircuitHostNotInitialized(_logger);
+                _ = NotifyClientError(Clients.Caller, "Circuit not initialized.");
+                return;
+            }
+
+            _ = CircuitHost.BeginInvokeDotNetFromJS(callId, assemblyName, methodIdentifier, dotNetObjectId, argsJson);
+        }
+
+        /// <summary>
+        /// Intended for framework use only. Applications should not call this method directly.
+        /// </summary>
+        public void EndInvokeJSFromDotNet(long asyncHandle, bool succeeded, string arguments)
+        {
+            if (CircuitHost == null)
+            {
+                Log.CircuitHostNotInitialized(_logger);
+                _ = NotifyClientError(Clients.Caller, "Circuit not initialized.");
+                return;
+            }
+
+            _ = CircuitHost.EndInvokeJSFromDotNet(asyncHandle, succeeded, arguments);
+        }
+
+        /// <summary>
+        /// Intended for framework use only. Applications should not call this method directly.
+        /// </summary>
+        public void DispatchBrowserEvent(string eventDescriptor, string eventArgs)
+        {
+            if (CircuitHost == null)
+            {
+                Log.CircuitHostNotInitialized(_logger);
+                _ = NotifyClientError(Clients.Caller, "Circuit not initialized.");
+                return;
+            }
+
+            _ = CircuitHost.DispatchEvent(eventDescriptor, eventArgs);
         }
 
         /// <summary>
@@ -131,17 +182,36 @@ namespace Microsoft.AspNetCore.Components.Server
         /// </summary>
         public void OnRenderCompleted(long renderId, string errorMessageOrNull)
         {
-            _logger.LogDebug($"Received confirmation for batch {renderId}.");
-            EnsureCircuitHost().Renderer.OnRenderCompleted(renderId, errorMessageOrNull);
+            if (CircuitHost == null)
+            {
+                Log.CircuitHostNotInitialized(_logger);
+                NotifyClientError(Clients.Caller, "Circuit not initialized.");
+                return;
+            }
+
+            Log.ReceivedConfirmationForBatch(_logger, renderId);
+            CircuitHost.Renderer.OnRenderCompleted(renderId, errorMessageOrNull);
         }
 
         private async void CircuitHost_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
             var circuitHost = (CircuitHost)sender;
+            var circuitId = circuitHost?.CircuitId;
+
             try
             {
-                _logger.LogWarning((Exception)e.ExceptionObject, "Unhandled Server-Side exception");
-                await circuitHost.Client.SendAsync("JS.Error", e.ExceptionObject);
+                Log.UnhandledExceptionInCircuit(_logger, circuitId, (Exception)e.ExceptionObject);
+                if (_options.DetailedErrors)
+                {
+                    await NotifyClientError(circuitHost.Client, e.ExceptionObject.ToString());
+                }
+                else
+                {
+                    var message = $"There was an unhandled exception on the current circuit, so this circuit will be terminated. For more details turn on " +
+                        $"detailed exceptions in '{typeof(CircuitOptions).Name}.{nameof(CircuitOptions.DetailedErrors)}'";
+
+                    await NotifyClientError(circuitHost.Client, message);
+                }
 
                 // We generally can't abort the connection here since this is an async
                 // callback. The Hub has already been torn down. We'll rely on the
@@ -149,20 +219,57 @@ namespace Microsoft.AspNetCore.Components.Server
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to transmit exception to client");
+                Log.FailedToTransmitException(_logger, circuitId, ex);
             }
         }
 
-        private CircuitHost EnsureCircuitHost()
+        private static Task NotifyClientError(IClientProxy client, string error) =>
+            client.SendAsync("JS.Error", error);
+
+        private static class Log
         {
-            var circuitHost = CircuitHost;
-            if (circuitHost == null)
+            private static readonly Action<ILogger, string, Exception> _noComponentsRegisteredInEndpoint =
+                LoggerMessage.Define<string>(LogLevel.Debug, new EventId(1, "NoComponentsRegisteredInEndpoint"), "No components registered in the current endpoint '{Endpoint}'");
+
+            private static readonly Action<ILogger, long, Exception> _receivedConfirmationForBatch =
+                LoggerMessage.Define<long>(LogLevel.Debug, new EventId(2, "ReceivedConfirmationForBatch"), "Received confirmation for batch {BatchId}");
+
+            private static readonly Action<ILogger, string, Exception> _unhandledExceptionInCircuit =
+                LoggerMessage.Define<string>(LogLevel.Warning, new EventId(3, "UnhandledExceptionInCircuit"), "Unhandled exception in circuit {CircuitId}");
+
+            private static readonly Action<ILogger, string, Exception> _failedToTransmitException =
+                LoggerMessage.Define<string>(LogLevel.Debug, new EventId(4, "FailedToTransmitException"), "Failed to transmit exception to client in circuit {CircuitId}");
+
+            private static readonly Action<ILogger, string, Exception> _circuitAlreadyInitialized =
+                LoggerMessage.Define<string>(LogLevel.Debug, new EventId(5, "CircuitAlreadyInitialized"), "The circuit host '{CircuitId}' has already been initialized");
+
+            private static readonly Action<ILogger, string, Exception> _circuitHostNotInitialized =
+                LoggerMessage.Define<string>(LogLevel.Debug, new EventId(6, "CircuitHostNotInitialized"), "Call to '{CallSite}' received before the circuit host initialization.");
+
+
+            public static void NoComponentsRegisteredInEndpoint(ILogger logger, string endpointDisplayName)
             {
-                var message = $"The {nameof(CircuitHost)} is null. This is due to an exception thrown during initialization.";
-                throw new InvalidOperationException(message);
+                _noComponentsRegisteredInEndpoint(logger, endpointDisplayName, null);
             }
 
-            return circuitHost;
+            public static void ReceivedConfirmationForBatch(ILogger logger, long batchId)
+            {
+                _receivedConfirmationForBatch(logger, batchId, null);
+            }
+
+            public static void UnhandledExceptionInCircuit(ILogger logger, string circuitId, Exception exception)
+            {
+                _unhandledExceptionInCircuit(logger, circuitId, exception);
+            }
+
+            public static void FailedToTransmitException(ILogger logger, string circuitId, Exception transmissionException)
+            {
+                _failedToTransmitException(logger, circuitId, transmissionException);
+            }
+
+            public static void CircuitAlreadyInitialized(ILogger logger, string circuitId) => _circuitAlreadyInitialized(logger, circuitId, null);
+
+            public static void CircuitHostNotInitialized(ILogger logger, [CallerMemberName] string callSite = "") => _circuitHostNotInitialized(logger, callSite, null);
         }
     }
 }

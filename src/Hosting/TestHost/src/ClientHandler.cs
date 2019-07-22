@@ -64,14 +64,21 @@ namespace Microsoft.AspNetCore.TestHost
 
             var contextBuilder = new HttpContextBuilder(_application, AllowSynchronousIO, PreserveExecutionContext);
 
-            Stream responseBody = null;
             var requestContent = request.Content ?? new StreamContent(Stream.Null);
             var body = await requestContent.ReadAsStreamAsync();
             contextBuilder.Configure(context =>
             {
                 var req = context.Request;
 
-                req.Protocol = "HTTP/" + request.Version.ToString(fieldCount: 2);
+                if (request.Version == HttpVersion.Version20)
+                {
+                    // https://tools.ietf.org/html/rfc7540
+                    req.Protocol = "HTTP/2";
+                }
+                else
+                {
+                    req.Protocol = "HTTP/" + request.Version.ToString(fieldCount: 2);
+                }
                 req.Method = request.Method.ToString();
 
                 req.Scheme = request.RequestUri.Scheme;
@@ -114,8 +121,6 @@ namespace Microsoft.AspNetCore.TestHost
                     body.Seek(0, SeekOrigin.Begin);
                 }
                 req.Body = new AsyncStreamWrapper(body, () => contextBuilder.AllowSynchronousIO);
-
-                responseBody = context.Response.Body;
             });
 
             var response = new HttpResponseMessage();
@@ -138,7 +143,7 @@ namespace Microsoft.AspNetCore.TestHost
             response.ReasonPhrase = httpContext.Features.Get<IHttpResponseFeature>().ReasonPhrase;
             response.RequestMessage = request;
 
-            response.Content = new StreamContent(responseBody);
+            response.Content = new StreamContent(httpContext.Response.Body);
 
             foreach (var header in httpContext.Response.Headers)
             {

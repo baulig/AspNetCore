@@ -9,8 +9,9 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.RenderTree;
-using Microsoft.AspNetCore.Components.Server.Circuits;
+using Microsoft.AspNetCore.Components.Web.Rendering;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace Ignitor
@@ -101,11 +102,13 @@ namespace Ignitor
                 RenderTreeEdit.UpdateMarkup(108, 109),
                 RenderTreeEdit.RemoveAttribute(110, "Some removed attribute"), // To test deduplication
             };
+            var editsBuilder = new Microsoft.AspNetCore.Components.RenderTree.ArrayBuilder<RenderTreeEdit>();
+            editsBuilder.Append(edits, 0, edits.Length);
+            var editsSegment = editsBuilder.ToSegment(1, edits.Length); // Skip first to show offset is respected
             var bytes = RoundTripSerialize(new RenderBatch(
                 new ArrayRange<RenderTreeDiff>(new[]
                 {
-                    new RenderTreeDiff(123, new ArraySegment<RenderTreeEdit>(
-                        edits, 1, edits.Length - 1)) // Skip first to show offset is respected
+                    new RenderTreeDiff(123, editsSegment)
                 }, 1),
                 default,
                 default,
@@ -146,7 +149,7 @@ namespace Ignitor
                     RenderTreeFrame.Attribute(123, "Attribute with string value", "String value"),
                     RenderTreeFrame.Attribute(124, "Attribute with nonstring value", 1),
                     RenderTreeFrame.Attribute(125, "Attribute with delegate value", new Action(() => { }))
-                        .WithAttributeEventHandlerId(789),
+                        .WithAttributeEventHandlerId((ulong)uint.MaxValue + 1),
                     RenderTreeFrame.ChildComponent(126, typeof(object))
                         .WithComponentSubtreeLength(5678)
                         .WithComponent(new ComponentState(renderer, 2000, new FakeComponent(), null)),
@@ -176,22 +179,22 @@ namespace Ignitor
             var referenceFramesStartIndex = ReadInt(bytes, bytes.Length - 16);
             AssertBinaryContents(bytes, referenceFramesStartIndex,
                 16, // Number of frames
-                RenderTreeFrameType.Attribute, "Attribute with string value", "String value", 0,
-                RenderTreeFrameType.Attribute, "Attribute with nonstring value", NullStringMarker, 0,
-                RenderTreeFrameType.Attribute, "Attribute with delegate value", NullStringMarker, 789,
-                RenderTreeFrameType.Component, 5678, 2000, 0,
-                RenderTreeFrameType.ComponentReferenceCapture, 0, 0, 0,
-                RenderTreeFrameType.Element, 1234, "Some element", 0,
-                RenderTreeFrameType.ElementReferenceCapture, "my unique ID", 0, 0,
-                RenderTreeFrameType.Region, 1234, 0, 0,
-                RenderTreeFrameType.Text, "Some text", 0, 0,
-                RenderTreeFrameType.Markup, "Some markup", 0, 0,
-                RenderTreeFrameType.Text, "\n\t  ", 0, 0,
-                RenderTreeFrameType.Attribute, "Attribute with string value", "String value", 0,
-                RenderTreeFrameType.Element, 999, "Some element", 0,
-                RenderTreeFrameType.Text, "Some text", 0, 0,
-                RenderTreeFrameType.Markup, "Some markup", 0, 0,
-                RenderTreeFrameType.Text, "\n\t  ", 0, 0
+                RenderTreeFrameType.Attribute, "Attribute with string value", "String value", 0, 0,
+                RenderTreeFrameType.Attribute, "Attribute with nonstring value", NullStringMarker, 0, 0,
+                RenderTreeFrameType.Attribute, "Attribute with delegate value", NullStringMarker, (ulong)uint.MaxValue + 1,
+                RenderTreeFrameType.Component, 5678, 2000, 0, 0,
+                RenderTreeFrameType.ComponentReferenceCapture, 0, 0, 0, 0,
+                RenderTreeFrameType.Element, 1234, "Some element", 0, 0,
+                RenderTreeFrameType.ElementReferenceCapture, "my unique ID", 0, 0, 0,
+                RenderTreeFrameType.Region, 1234, 0, 0, 0,
+                RenderTreeFrameType.Text, "Some text", 0, 0, 0,
+                RenderTreeFrameType.Markup, "Some markup", 0, 0, 0,
+                RenderTreeFrameType.Text, "\n\t  ", 0, 0, 0,
+                RenderTreeFrameType.Attribute, "Attribute with string value", "String value", 0, 0,
+                RenderTreeFrameType.Element, 999, "Some element", 0, 0,
+                RenderTreeFrameType.Text, "Some text", 0, 0, 0,
+                RenderTreeFrameType.Markup, "Some markup", 0, 0, 0,
+                RenderTreeFrameType.Text, "\n\t  ", 0, 0, 0
             );
 
             Assert.Equal(new[]
@@ -268,12 +271,16 @@ namespace Ignitor
                 {
                     // Assume enums are represented as ints
                     var expectedEntry = expectedEntryIterationVar.GetType().IsEnum
-                        ? (int)expectedEntryIterationVar
+                        ? Convert.ToInt32(expectedEntryIterationVar)
                         : expectedEntryIterationVar;
 
                     if (expectedEntry is int expectedInt)
                     {
                         Assert.Equal(expectedInt, reader.ReadInt32());
+                    }
+                    else if (expectedEntry is ulong expectedUlong)
+                    {
+                        Assert.Equal(expectedUlong, reader.ReadUInt64());
                     }
                     else if (expectedEntry is string || expectedEntry == NullStringMarker)
                     {
@@ -321,7 +328,7 @@ namespace Ignitor
 
         class FakeComponent : IComponent
         {
-            public void Configure(RenderHandle renderHandle)
+            public void Attach(RenderHandle renderHandle)
                 => throw new NotImplementedException();
 
             public Task SetParametersAsync(ParameterCollection parameters)
@@ -331,9 +338,11 @@ namespace Ignitor
         class FakeRenderer : Renderer
         {
             public FakeRenderer()
-                : base(new ServiceCollection().BuildServiceProvider(), new RendererSynchronizationContext())
+                : base(new ServiceCollection().BuildServiceProvider(), NullLoggerFactory.Instance)
             {
             }
+
+            public override Dispatcher Dispatcher { get; } = Dispatcher.CreateDefault();
 
             protected override void HandleException(Exception exception)
             {

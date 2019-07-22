@@ -5,8 +5,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Encodings.Web;
-using Microsoft.AspNetCore.Components.Browser;
-using Microsoft.AspNetCore.Components.Browser.Rendering;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.Web.Rendering;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.Routing;
 using Microsoft.AspNetCore.Http;
@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
+using System.Threading.Tasks;
 
 namespace Microsoft.AspNetCore.Components.Server.Circuits
 {
@@ -21,6 +22,7 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly ILoggerFactory _loggerFactory;
+        private readonly ILogger _logger;
         private readonly CircuitIdFactory _circuitIdFactory;
 
         public DefaultCircuitFactory(
@@ -30,6 +32,7 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
         {
             _scopeFactory = scopeFactory ?? throw new ArgumentNullException(nameof(scopeFactory));
             _loggerFactory = loggerFactory;
+            _logger = _loggerFactory.CreateLogger<CircuitFactory>();
             _circuitIdFactory = circuitIdFactory ?? throw new ArgumentNullException(nameof(circuitIdFactory));
         }
 
@@ -48,9 +51,12 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
             jsRuntime.Initialize(client);
             componentContext.Initialize(client);
 
-            // You can replace the AuthenticationStateProvider with a custom one, but in that case initialization is up to you
-            var authenticationStateProvider = scope.ServiceProvider.GetService<AuthenticationStateProvider>();
-            (authenticationStateProvider as FixedAuthenticationStateProvider)?.Initialize(httpContext.User);
+            var authenticationStateProvider = scope.ServiceProvider.GetService<AuthenticationStateProvider>() as IHostEnvironmentAuthenticationStateProvider;
+            if (authenticationStateProvider != null)
+            {
+                var authenticationState = new AuthenticationState(httpContext.User); // TODO: Get this from the hub connection context instead
+                authenticationStateProvider.SetAuthenticationState(Task.FromResult(authenticationState));
+            }
 
             var uriHelper = (RemoteUriHelper)scope.ServiceProvider.GetRequiredService<IUriHelper>();
             var navigationInterception = (RemoteNavigationInterception)scope.ServiceProvider.GetRequiredService<INavigationInterception>();
@@ -69,13 +75,12 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
             }
 
             var rendererRegistry = new RendererRegistry();
-            var dispatcher = Renderer.CreateDefaultDispatcher();
             var renderer = new RemoteRenderer(
                 scope.ServiceProvider,
+                _loggerFactory,
                 rendererRegistry,
                 jsRuntime,
                 client,
-                dispatcher,
                 encoder,
                 _loggerFactory.CreateLogger<RemoteRenderer>());
 
@@ -90,10 +95,10 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
                 rendererRegistry,
                 renderer,
                 components,
-                dispatcher,
                 jsRuntime,
                 circuitHandlers,
                 _loggerFactory.CreateLogger<CircuitHost>());
+            Log.CreatedCircuit(_logger, circuitHost);
 
             // Initialize per - circuit data that services need
             (circuitHost.Services.GetRequiredService<ICircuitAccessor>() as DefaultCircuitAccessor).Circuit = circuitHost.Circuit;
@@ -122,6 +127,27 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
                 var componentsMetadata = endpoint.Metadata.OfType<ComponentDescriptor>().ToList();
 
                 return componentsMetadata;
+            }
+        }
+
+        private static class Log
+        {
+            private static readonly Action<ILogger, string, string, Exception> _createdConnectedCircuit =
+                LoggerMessage.Define<string, string>(LogLevel.Debug, new EventId(1, "CreatedConnectedCircuit"), "Created circuit {CircuitId} for connection {ConnectionId}");
+
+            private static readonly Action<ILogger, string, Exception> _createdDisconnectedCircuit =
+                LoggerMessage.Define<string>(LogLevel.Debug, new EventId(2, "CreatedDisconnectedCircuit"), "Created circuit {CircuitId} for disconnected client");
+
+            internal static void CreatedCircuit(ILogger logger, CircuitHost circuitHost)
+            {
+                if (circuitHost.Client.Connected)
+                {
+                    _createdConnectedCircuit(logger, circuitHost.CircuitId, circuitHost.Client.ConnectionId, null);
+                }
+                else
+                {
+                    _createdDisconnectedCircuit(logger, circuitHost.CircuitId, null);
+                }
             }
         }
     }

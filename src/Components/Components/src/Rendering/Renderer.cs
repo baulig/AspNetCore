@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components.RenderTree;
+using Microsoft.Extensions.Logging;
 
 namespace Microsoft.AspNetCore.Components.Rendering
 {
@@ -14,18 +15,18 @@ namespace Microsoft.AspNetCore.Components.Rendering
     /// Provides mechanisms for rendering hierarchies of <see cref="IComponent"/> instances,
     /// dispatching events to them, and notifying when the user interface is being updated.
     /// </summary>
-    public abstract class Renderer : IDisposable
+    public abstract partial class Renderer : IDisposable
     {
-        private readonly ComponentFactory _componentFactory;
+        private readonly IServiceProvider _serviceProvider;
         private readonly Dictionary<int, ComponentState> _componentStateById = new Dictionary<int, ComponentState>();
         private readonly RenderBatchBuilder _batchBuilder = new RenderBatchBuilder();
-        private readonly Dictionary<int, EventCallback> _eventBindings = new Dictionary<int, EventCallback>();
-        private readonly Dictionary<int, int> _eventHandlerIdReplacements = new Dictionary<int, int>();
-        private readonly IDispatcher _dispatcher;
+        private readonly Dictionary<ulong, EventCallback> _eventBindings = new Dictionary<ulong, EventCallback>();
+        private readonly Dictionary<ulong, ulong> _eventHandlerIdReplacements = new Dictionary<ulong, ulong>();
+        private readonly ILogger<Renderer> _logger;
 
         private int _nextComponentId = 0; // TODO: change to 'long' when Mono .NET->JS interop supports it
         private bool _isBatchInProgress;
-        private int _lastEventHandlerId = 0;
+        private ulong _lastEventHandlerId;
         private List<Task> _pendingTasks;
 
         /// <summary>
@@ -35,19 +36,11 @@ namespace Microsoft.AspNetCore.Components.Rendering
         {
             add
             {
-                if (!(_dispatcher is RendererSynchronizationContext rendererSynchronizationContext))
-                {
-                    return;
-                }
-                rendererSynchronizationContext.UnhandledException += value;
+                Dispatcher.UnhandledException += value;
             }
             remove
             {
-                if (!(_dispatcher is RendererSynchronizationContext rendererSynchronizationContext))
-                {
-                    return;
-                }
-                rendererSynchronizationContext.UnhandledException -= value;
+                Dispatcher.UnhandledException -= value;
             }
         }
 
@@ -55,26 +48,27 @@ namespace Microsoft.AspNetCore.Components.Rendering
         /// Constructs an instance of <see cref="Renderer"/>.
         /// </summary>
         /// <param name="serviceProvider">The <see cref="IServiceProvider"/> to be used when initializing components.</param>
-        public Renderer(IServiceProvider serviceProvider)
+        /// <param name="loggerFactory">The <see cref="ILoggerFactory"/>.</param>
+        public Renderer(IServiceProvider serviceProvider, ILoggerFactory loggerFactory)
         {
-            _componentFactory = new ComponentFactory(serviceProvider);
+            if (serviceProvider is null)
+            {
+                throw new ArgumentNullException(nameof(serviceProvider));
+            }
+
+            if (loggerFactory is null)
+            {
+                throw new ArgumentNullException(nameof(loggerFactory));
+            }
+
+            _serviceProvider = serviceProvider;
+            _logger = loggerFactory.CreateLogger<Renderer>();
         }
 
         /// <summary>
-        /// Constructs an instance of <see cref="Renderer"/>.
+        /// Gets the <see cref="Microsoft.AspNetCore.Components.Dispatcher" /> associated with this <see cref="Renderer" />.
         /// </summary>
-        /// <param name="serviceProvider">The <see cref="IServiceProvider"/> to be used when initializing components.</param>
-        /// <param name="dispatcher">The <see cref="IDispatcher"/> to be for invoking user actions into the <see cref="Renderer"/> context.</param>
-        public Renderer(IServiceProvider serviceProvider, IDispatcher dispatcher) : this(serviceProvider)
-        {
-            _dispatcher = dispatcher;
-        }
-
-        /// <summary>
-        /// Creates an <see cref="IDispatcher"/> that can be used with one or more <see cref="Renderer"/>.
-        /// </summary>
-        /// <returns>The <see cref="IDispatcher"/>.</returns>
-        public static IDispatcher CreateDefaultDispatcher() => new RendererSynchronizationContext();
+        public abstract Dispatcher Dispatcher { get; }
 
         /// <summary>
         /// Constructs a new component of the specified type.
@@ -82,7 +76,7 @@ namespace Microsoft.AspNetCore.Components.Rendering
         /// <param name="componentType">The type of the component to instantiate.</param>
         /// <returns>The component instance.</returns>
         protected IComponent InstantiateComponent(Type componentType)
-            => _componentFactory.InstantiateComponent(componentType);
+            => ComponentFactory.Instance.InstantiateComponent(_serviceProvider, componentType);
 
         /// <summary>
         /// Associates the <see cref="IComponent"/> with the <see cref="Renderer"/>, assigning
@@ -189,8 +183,9 @@ namespace Microsoft.AspNetCore.Components.Rendering
             var componentId = _nextComponentId++;
             var parentComponentState = GetOptionalComponentState(parentComponentId);
             var componentState = new ComponentState(this, componentId, component, parentComponentState);
+            Log.InitializingComponent(_logger, componentState, parentComponentState);
             _componentStateById.Add(componentId, componentState);
-            component.Configure(new RenderHandle(this, componentId));
+            component.Attach(new RenderHandle(this, componentId));
             return componentState;
         }
 
@@ -211,7 +206,7 @@ namespace Microsoft.AspNetCore.Components.Rendering
         /// A <see cref="Task"/> which will complete once all asynchronous processing related to the event
         /// has completed.
         /// </returns>
-        public virtual Task DispatchEventAsync(int eventHandlerId, EventFieldInfo fieldInfo, UIEventArgs eventArgs)
+        public virtual Task DispatchEventAsync(ulong eventHandlerId, EventFieldInfo fieldInfo, UIEventArgs eventArgs)
         {
             EnsureSynchronizationContext();
 
@@ -219,6 +214,8 @@ namespace Microsoft.AspNetCore.Components.Rendering
             {
                 throw new ArgumentException($"There is no event handler with ID {eventHandlerId}");
             }
+
+            Log.HandlingEvent(_logger, eventHandlerId, eventArgs);
 
             if (fieldInfo != null)
             {
@@ -238,6 +235,7 @@ namespace Microsoft.AspNetCore.Components.Rendering
             catch (Exception e)
             {
                 HandleException(e);
+                return Task.CompletedTask;
             }
             finally
             {
@@ -251,58 +249,6 @@ namespace Microsoft.AspNetCore.Components.Rendering
             // Task completed synchronously or is still running. We already processed all of the rendering
             // work that was queued so let our error handler deal with it.
             return GetErrorHandledTask(task);
-        }
-
-        /// <summary>
-        /// Executes the supplied work item on the renderer's
-        /// synchronization context.
-        /// </summary>
-        /// <param name="workItem">The work item to execute.</param>
-        public virtual Task Invoke(Action workItem)
-        {
-            // This is for example when we run on a system with a single thread, like WebAssembly.
-            if (_dispatcher == null)
-            {
-                workItem();
-                return Task.CompletedTask;
-            }
-
-            if (SynchronizationContext.Current == _dispatcher)
-            {
-                // This is an optimization for when the dispatcher is also a syncronization context, like in the default case.
-                // No need to dispatch. Avoid deadlock by invoking directly.
-                workItem();
-                return Task.CompletedTask;
-            }
-            else
-            {
-                return _dispatcher.Invoke(workItem);
-            }
-        }
-
-        /// <summary>
-        /// Executes the supplied work item on the renderer's
-        /// synchronization context.
-        /// </summary>
-        /// <param name="workItem">The work item to execute.</param>
-        public virtual Task InvokeAsync(Func<Task> workItem)
-        {
-            // This is for example when we run on a system with a single thread, like WebAssembly.
-            if (_dispatcher == null)
-            {
-                return workItem();
-            }
-
-            if (SynchronizationContext.Current == _dispatcher)
-            {
-                // This is an optimization for when the dispatcher is also a syncronization context, like in the default case.
-                // No need to dispatch. Avoid deadlock by invoking directly.
-                return workItem();
-            }
-            else
-            {
-                return _dispatcher.InvokeAsync(workItem);
-            }
         }
 
         internal void InstantiateChildComponentOnFrame(ref RenderTreeFrame frame, int parentComponentId)
@@ -409,7 +355,7 @@ namespace Microsoft.AspNetCore.Components.Rendering
             }
         }
 
-        internal void TrackReplacedEventHandlerId(int oldEventHandlerId, int newEventHandlerId)
+        internal void TrackReplacedEventHandlerId(ulong oldEventHandlerId, ulong newEventHandlerId)
         {
             // Tracking the chain of old->new replacements allows us to interpret incoming EventFieldInfo
             // values even if they refer to an event handler ID that's since been superseded. This is essential
@@ -417,7 +363,7 @@ namespace Microsoft.AspNetCore.Components.Rendering
             _eventHandlerIdReplacements.Add(oldEventHandlerId, newEventHandlerId);
         }
 
-        private int FindLatestEventHandlerIdInChain(int eventHandlerId)
+        private ulong FindLatestEventHandlerIdInChain(ulong eventHandlerId)
         {
             while (_eventHandlerIdReplacements.TryGetValue(eventHandlerId, out var replacementEventHandlerId))
             {
@@ -429,17 +375,16 @@ namespace Microsoft.AspNetCore.Components.Rendering
 
         private void EnsureSynchronizationContext()
         {
-            // When the IDispatcher is a synchronization context
-            // Render operations are not thread-safe, so they need to be serialized.
+            // Render operations are not thread-safe, so they need to be serialized by the dispatcher.
             // Plus, any other logic that mutates state accessed during rendering also
             // needs not to run concurrently with rendering so should be dispatched to
             // the renderer's sync context.
-            if (_dispatcher is SynchronizationContext synchronizationContext && SynchronizationContext.Current != synchronizationContext)
+            if (!Dispatcher.CheckAccess())
             {
                 throw new InvalidOperationException(
-                    "The current thread is not associated with the renderer's synchronization context. " +
-                    "Use Invoke() or InvokeAsync() to switch execution to the renderer's synchronization " +
-                    "context when triggering rendering or modifying any state accessed during rendering.");
+                    "The current thread is not associated with the Dispatcher. " +
+                    "Use Invoke() or InvokeAsync() to switch execution to the Dispatcher when " +
+                    "triggering rendering or modifying any state accessed during rendering.");
             }
         }
 
@@ -613,20 +558,23 @@ namespace Microsoft.AspNetCore.Components.Rendering
 
         private void RenderInExistingBatch(RenderQueueEntry renderQueueEntry)
         {
-            renderQueueEntry.ComponentState
-                .RenderIntoBatch(_batchBuilder, renderQueueEntry.RenderFragment);
+            var componentState = renderQueueEntry.ComponentState;
+            Log.RenderingComponent(_logger, componentState);
+            componentState.RenderIntoBatch(_batchBuilder, renderQueueEntry.RenderFragment);
 
             // Process disposal queue now in case it causes further component renders to be enqueued
             while (_batchBuilder.ComponentDisposalQueue.Count > 0)
             {
                 var disposeComponentId = _batchBuilder.ComponentDisposalQueue.Dequeue();
-                GetRequiredComponentState(disposeComponentId).DisposeInBatch(_batchBuilder);
+                var disposeComponentState = GetRequiredComponentState(disposeComponentId);
+                Log.DisposingComponent(_logger, disposeComponentState);
+                disposeComponentState.DisposeInBatch(_batchBuilder);
                 _componentStateById.Remove(disposeComponentId);
                 _batchBuilder.DisposedComponentIds.Append(disposeComponentId);
             }
         }
 
-        private void RemoveEventHandlerIds(ArrayRange<int> eventHandlerIds, Task afterTaskIgnoreErrors)
+        private void RemoveEventHandlerIds(ArrayRange<ulong> eventHandlerIds, Task afterTaskIgnoreErrors)
         {
             if (eventHandlerIds.Count == 0)
             {
@@ -651,7 +599,7 @@ namespace Microsoft.AspNetCore.Components.Rendering
 
             // Factor out the async part into a separate local method purely so, in the
             // synchronous case, there's no state machine or task construction
-            async Task ContinueAfterTask(ArrayRange<int> eventHandlerIds, Task afterTaskIgnoreErrors)
+            async Task ContinueAfterTask(ArrayRange<ulong> eventHandlerIds, Task afterTaskIgnoreErrors)
             {
                 // We need to delay the actual removal (e.g., until we've confirmed the client
                 // has processed the batch and hence can be sure not to reuse the handler IDs
@@ -690,7 +638,7 @@ namespace Microsoft.AspNetCore.Components.Rendering
             }
         }
 
-        private void UpdateRenderTreeToMatchClientState(int eventHandlerId, EventFieldInfo fieldInfo)
+        private void UpdateRenderTreeToMatchClientState(ulong eventHandlerId, EventFieldInfo fieldInfo)
         {
             var componentState = GetOptionalComponentState(fieldInfo.ComponentId);
             if (componentState != null)
@@ -710,17 +658,21 @@ namespace Microsoft.AspNetCore.Components.Rendering
         {
             foreach (var componentState in _componentStateById.Values)
             {
+                Log.DisposingComponent(_logger, componentState);
+
                 if (componentState.Component is IDisposable disposable)
                 {
                     try
                     {
-                        disposable.Dispose();
+                        componentState.Dispose();
                     }
                     catch (Exception exception)
                     {
                         HandleException(exception);
                     }
                 }
+
+                _batchBuilder.Dispose();
             }
         }
 

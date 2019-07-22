@@ -3,12 +3,13 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Components.Browser;
-using Microsoft.AspNetCore.Components.Browser.Rendering;
 using Microsoft.AspNetCore.Components.Rendering;
 using Microsoft.AspNetCore.Components.Routing;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.Web.Rendering;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
@@ -56,14 +57,12 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
             RendererRegistry rendererRegistry,
             RemoteRenderer renderer,
             IList<ComponentDescriptor> descriptors,
-            IDispatcher dispatcher,
             RemoteJSRuntime jsRuntime,
             CircuitHandler[] circuitHandlers,
             ILogger logger)
         {
             CircuitId = circuitId;
             _scope = scope ?? throw new ArgumentNullException(nameof(scope));
-            Dispatcher = dispatcher;
             Client = client;
             RendererRegistry = rendererRegistry ?? throw new ArgumentNullException(nameof(rendererRegistry));
             Descriptors = descriptors ?? throw new ArgumentNullException(nameof(descriptors));
@@ -96,11 +95,9 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
 
         public IServiceProvider Services { get; }
 
-        public IDispatcher Dispatcher { get; }
-
         public Task<ComponentRenderedText> PrerenderComponentAsync(Type componentType, ParameterCollection parameters)
         {
-            return Dispatcher.InvokeAsync(async () =>
+            return Renderer.Dispatcher.InvokeAsync(async () =>
             {
                 var result = await Renderer.RenderComponentAsync(componentType, parameters);
 
@@ -137,12 +134,81 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
             // Dispatch any buffered renders we accumulated during a disconnect.
             // Note that while the rendering is async, we cannot await it here. The Task returned by ProcessBufferedRenderBatches relies on
             // OnRenderCompleted to be invoked to complete, and SignalR does not allow concurrent hub method invocations.
-            var _ = Renderer.InvokeAsync(() => Renderer.ProcessBufferedRenderBatches());
+            _ = Renderer.Dispatcher.InvokeAsync(() => Renderer.ProcessBufferedRenderBatches());
+        }
+
+        public async Task EndInvokeJSFromDotNet(long asyncCall, bool succeded, string arguments)
+        {
+            try
+            {
+                AssertInitialized();
+
+                await Renderer.Dispatcher.InvokeAsync(() =>
+                {
+                    SetCurrentCircuitHost(this);
+                    if (!succeded)
+                    {
+                        // We can log the arguments here because it is simply the JS error with the call stack.
+                        Log.EndInvokeJSFailed(_logger, asyncCall, arguments);
+                    }
+                    else
+                    {
+                        Log.EndInvokeJSSucceeded(_logger, asyncCall);
+                    }
+
+                    DotNetDispatcher.EndInvoke(arguments);
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.EndInvokeDispatchException(_logger, ex);
+            }
+        }
+
+        public async Task DispatchEvent(string eventDescriptorJson, string eventArgs)
+        {
+            RendererRegistryEventDispatcher.BrowserEventDescriptor eventDescriptor = null;
+            try
+            {
+                AssertInitialized();
+                eventDescriptor = ParseEventDescriptor(eventDescriptorJson);
+                if (eventDescriptor == null)
+                {
+                    return;
+                }
+
+
+                await Renderer.Dispatcher.InvokeAsync(() =>
+                {
+                    SetCurrentCircuitHost(this);
+                    return RendererRegistryEventDispatcher.DispatchEvent(eventDescriptor, eventArgs);
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.DispatchEventFailedToDispatchEvent(_logger, eventDescriptor != null ? eventDescriptor.EventHandlerId.ToString() : null, ex);
+                UnhandledException?.Invoke(this, new UnhandledExceptionEventArgs(ex, isTerminating: false));
+            }
+        }
+
+        private RendererRegistryEventDispatcher.BrowserEventDescriptor ParseEventDescriptor(string eventDescriptorJson)
+        {
+            try
+            {
+                return JsonSerializer.Deserialize<RendererRegistryEventDispatcher.BrowserEventDescriptor>(
+                    eventDescriptorJson,
+                    JsonSerializerOptionsProvider.Options);
+            }
+            catch (Exception ex)
+            {
+                Log.DispatchEventFailedToParseEventDescriptor(_logger, ex);
+                return null;
+            }
         }
 
         public async Task InitializeAsync(CancellationToken cancellationToken)
         {
-            await Renderer.InvokeAsync(async () =>
+            await Renderer.Dispatcher.InvokeAsync(async () =>
             {
                 try
                 {
@@ -174,15 +240,21 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
             });
         }
 
-        public async void BeginInvokeDotNetFromJS(string callId, string assemblyName, string methodIdentifier, long dotNetObjectId, string argsJson)
+        public async Task BeginInvokeDotNetFromJS(string callId, string assemblyName, string methodIdentifier, long dotNetObjectId, string argsJson)
         {
-            AssertInitialized();
-
             try
             {
-                await Renderer.Invoke(() =>
+                AssertInitialized();
+                if(assemblyName == "Microsoft.AspNetCore.Components.Web" && methodIdentifier == "DispatchEvent")
+                {
+                    Log.DispatchEventTroughJSInterop(_logger);
+                    return;
+                }
+
+                await Renderer.Dispatcher.InvokeAsync(() =>
                 {
                     SetCurrentCircuitHost(this);
+                    Log.BeginInvokeDotNet(_logger, callId, assemblyName, methodIdentifier, dotNetObjectId);
                     DotNetDispatcher.BeginInvoke(callId, assemblyName, methodIdentifier, dotNetObjectId, argsJson);
                 });
             }
@@ -291,12 +363,18 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
         {
             Log.DisposingCircuit(_logger, CircuitId);
 
-            await Renderer.InvokeAsync(async () =>
+            await Renderer.Dispatcher.InvokeAsync(async () =>
             {
-                await OnConnectionDownAsync(CancellationToken.None);
-                await OnCircuitDownAsync();
-                Renderer.Dispose();
-                _scope.Dispose();
+                try
+                {
+                    await OnConnectionDownAsync(CancellationToken.None);
+                    await OnCircuitDownAsync();
+                }
+                finally
+                {
+                    Renderer.Dispose();
+                    _scope.Dispose();
+                }
             });
         }
 
@@ -326,6 +404,14 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
             private static readonly Action<ILogger, string, string, Exception> _onConnectionUp;
             private static readonly Action<ILogger, string, string, Exception> _onConnectionDown;
             private static readonly Action<ILogger, string, Exception> _onCircuitClosed;
+            private static readonly Action<ILogger, string, string, string, Exception> _beginInvokeDotNetStatic;
+            private static readonly Action<ILogger, string, long, string, Exception> _beginInvokeDotNetInstance;
+            private static readonly Action<ILogger, Exception> _endInvokeDispatchException;
+            private static readonly Action<ILogger, long, string, Exception> _endInvokeJSFailed;
+            private static readonly Action<ILogger, long, Exception> _endInvokeJSSucceeded;
+            private static readonly Action<ILogger, Exception> _dispatchEventFailedToParseEventDescriptor;
+            private static readonly Action<ILogger, string, Exception> _dispatchEventFailedToDispatchEvent;
+            private static readonly Action<ILogger, Exception> _dispatchEventThroughJSInterop;
 
             private static class EventIds
             {
@@ -335,6 +421,14 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
                 public static readonly EventId OnConnectionUp = new EventId(103, "OnConnectionUp");
                 public static readonly EventId OnConnectionDown = new EventId(104, "OnConnectionDown");
                 public static readonly EventId OnCircuitClosed = new EventId(105, "OnCircuitClosed");
+                public static readonly EventId InvalidBrowserEventFormat = new EventId(106, "InvalidBrowserEventFormat");
+                public static readonly EventId DispatchEventFailedToParseEventDescriptor = new EventId(107, "DispatchEventFailedToParseEventDescriptor");
+                public static readonly EventId DispatchEventFailedToDispatchEvent = new EventId(108, "DispatchEventFailedToDispatchEvent");
+                public static readonly EventId BeginInvokeDotNet = new EventId(109, "BeginInvokeDotNet");
+                public static readonly EventId EndInvokeDispatchException = new EventId(110, "EndInvokeDispatchException");
+                public static readonly EventId EndInvokeJSFailed = new EventId(111, "EndInvokeJSFailed");
+                public static readonly EventId EndInvokeJSSucceeded = new EventId(112, "EndInvokeJSSucceeded");
+                public static readonly EventId DispatchEventThroughJSInterop = new EventId(113, "DispatchEventThroughJSInterop");
             }
 
             static Log()
@@ -345,7 +439,7 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
                     "Unhandled error invoking circuit handler type {handlerType}.{handlerMethod}: {Message}");
 
                 _disposingCircuit = LoggerMessage.Define<string>(
-                    LogLevel.Trace,
+                    LogLevel.Debug,
                     EventIds.DisposingCircuit,
                     "Disposing circuit with identifier {CircuitId}");
 
@@ -368,6 +462,46 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
                    LogLevel.Debug,
                    EventIds.OnCircuitClosed,
                    "Closing circuit with id {CircuitId}.");
+
+                _beginInvokeDotNetStatic = LoggerMessage.Define<string, string, string>(
+                    LogLevel.Debug,
+                    EventIds.BeginInvokeDotNet,
+                    "Invoking static method with identifier '{MethodIdentifier}' on assembly '{Assembly}' with callback id '{CallId}'");
+
+                _beginInvokeDotNetInstance = LoggerMessage.Define<string, long, string>(
+                    LogLevel.Debug,
+                    EventIds.BeginInvokeDotNet,
+                    "Invoking instance method '{MethodIdentifier}' on instance '{DotNetObjectId}' with callback id '{CallId}'");
+
+                _endInvokeDispatchException = LoggerMessage.Define(
+                    LogLevel.Debug,
+                    EventIds.EndInvokeDispatchException,
+                    "There was an error invoking 'Microsoft.JSInterop.DotNetDispatcher.EndInvoke'.");
+
+                _endInvokeJSFailed = LoggerMessage.Define<long, string>(
+                    LogLevel.Debug,
+                    EventIds.EndInvokeJSFailed,
+                    "The JS interop call with callback id '{AsyncCall}' failed with error '{Error}'.");
+
+                _endInvokeJSSucceeded = LoggerMessage.Define<long>(
+                    LogLevel.Debug,
+                    EventIds.EndInvokeJSSucceeded,
+                    "The JS interop call with callback id '{AsyncCall}' succeeded.");
+
+                _dispatchEventFailedToParseEventDescriptor = LoggerMessage.Define(
+                    LogLevel.Debug,
+                    EventIds.DispatchEventFailedToParseEventDescriptor,
+                    "Failed to parse the event descriptor data when trying to dispatch an event.");
+
+                _dispatchEventFailedToDispatchEvent = LoggerMessage.Define<string>(
+                    LogLevel.Debug,
+                    EventIds.DispatchEventFailedToDispatchEvent,
+                    "There was an error dispatching the event '{EventHandlerId}' to the application.");
+
+                _dispatchEventThroughJSInterop = LoggerMessage.Define(
+                    LogLevel.Debug,
+                    EventIds.DispatchEventThroughJSInterop,
+                    "There was an intent to dispatch a browser event through JS interop.");
             }
 
             public static void UnhandledExceptionInvokingCircuitHandler(ILogger logger, CircuitHandler handler, string handlerMethod, Exception exception)
@@ -392,6 +526,31 @@ namespace Microsoft.AspNetCore.Components.Server.Circuits
 
             public static void CircuitClosed(ILogger logger, string circuitId) =>
                 _onCircuitClosed(logger, circuitId, null);
+
+            public static void EndInvokeDispatchException(ILogger logger, Exception ex) => _endInvokeDispatchException(logger, ex);
+
+            public static void EndInvokeJSFailed(ILogger logger, long asyncHandle, string arguments) => _endInvokeJSFailed(logger, asyncHandle, arguments, null);
+
+            public static void EndInvokeJSSucceeded(ILogger logger, long asyncCall) => _endInvokeJSSucceeded(logger, asyncCall, null);
+
+            public static void DispatchEventFailedToParseEventDescriptor(ILogger logger, Exception ex) => _dispatchEventFailedToParseEventDescriptor(logger, ex);
+
+            public static void DispatchEventFailedToDispatchEvent(ILogger logger, string eventHandlerId, Exception ex) => _dispatchEventFailedToDispatchEvent(logger, eventHandlerId ?? "", ex);
+
+            public static void BeginInvokeDotNet(ILogger logger, string callId, string assemblyName, string methodIdentifier, long dotNetObjectId)
+            {
+                if (assemblyName != null)
+                {
+                    _beginInvokeDotNetStatic(logger, methodIdentifier, assemblyName, callId, null);
+                }
+                else
+                {
+                    _beginInvokeDotNetInstance(logger, methodIdentifier, dotNetObjectId, callId, null);
+                }
+            }
+
+            public static void DispatchEventTroughJSInterop(ILogger logger) =>
+                _dispatchEventThroughJSInterop(logger, null);
         }
     }
 }

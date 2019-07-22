@@ -17,7 +17,7 @@ namespace System.Buffers
         private static byte[] _numericBytesScratch;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ReadOnlySpan<byte> ToSpan(this ReadOnlySequence<byte> buffer)
+        public static ReadOnlySpan<byte> ToSpan(in this ReadOnlySequence<byte> buffer)
         {
             if (buffer.IsSingleSegment)
             {
@@ -255,7 +255,6 @@ namespace System.Buffers
                 {
                     char ch = *(input + i);
                     *(output + i) = (byte)ch; // Cast convert
-                    i = length;
                 }
             }
         }

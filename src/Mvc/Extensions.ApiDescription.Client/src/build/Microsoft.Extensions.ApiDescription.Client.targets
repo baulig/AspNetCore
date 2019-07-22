@@ -25,8 +25,10 @@
       @(OpenApiProjectReference) items.
     -->
     <ProjectReference Include="@(OpenApiProjectReference)" Exclude="@(ProjectReference)">
-      <NoWarn>NU1702</NoWarn>
+      <GlobalPropertiesToRemove>TargetFramework</GlobalPropertiesToRemove>
+      <Private>false</Private>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <SkipGetTargetFrameworkProperties>true</SkipGetTargetFrameworkProperties>
     </ProjectReference>
     <ProjectReference Update="@(OpenApiProjectReference)">
       <OpenApiReference>true</OpenApiReference>
@@ -126,6 +128,9 @@
           Condition="'$(DefaultLanguageSourceExtension)' != '.ts'">
         <SourceDocument>%(_Directories.FullPath)</SourceDocument>
       </Compile>
+
+      <FileWrites Exclude="@(FileWrites)"
+          Include="@(_Files);@(_Directories -> '%(Identity)/**/*.ts;%(Identity)/**/*.tsx;%(Identity)/**/*.$(DefaultLanguageSourceExtension)'" />
 
       <_Files Remove="@(_Files)" />
       <_Directories Remove="@(_Directories)" />

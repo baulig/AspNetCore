@@ -87,6 +87,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 context.TimeoutControl,
                 httpLimits.MinResponseDataRate,
                 context.ConnectionId,
+                context.MemoryPool,
                 context.ServiceContext.Log);
 
             _hpackDecoder = new HPackDecoder(http2Limits.HeaderTableSize, http2Limits.MaxRequestHeaderFieldSize);
@@ -243,6 +244,11 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 Log.RequestProcessingError(ConnectionId, ex);
                 error = ex;
             }
+            catch (ConnectionAbortedException ex)
+            {
+                Log.RequestProcessingError(ConnectionId, ex);
+                error = ex;
+            }
             catch (Http2ConnectionErrorException ex)
             {
                 Log.Http2ConnectionError(ConnectionId, ex);
@@ -379,7 +385,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             return true;
         }
 
-        private Task ProcessFrameAsync<TContext>(IHttpApplication<TContext> application, ReadOnlySequence<byte> payload)
+        private Task ProcessFrameAsync<TContext>(IHttpApplication<TContext> application, in ReadOnlySequence<byte> payload)
         {
             // http://httpwg.org/specs/rfc7540.html#rfc.section.5.1.1
             // Streams initiated by a client MUST use odd-numbered stream identifiers; ...
@@ -390,34 +396,23 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 throw new Http2ConnectionErrorException(CoreStrings.FormatHttp2ErrorStreamIdEven(_incomingFrame.Type, _incomingFrame.StreamId), Http2ErrorCode.PROTOCOL_ERROR);
             }
 
-            switch (_incomingFrame.Type)
+            return _incomingFrame.Type switch
             {
-                case Http2FrameType.DATA:
-                    return ProcessDataFrameAsync(payload);
-                case Http2FrameType.HEADERS:
-                    return ProcessHeadersFrameAsync(application, payload);
-                case Http2FrameType.PRIORITY:
-                    return ProcessPriorityFrameAsync();
-                case Http2FrameType.RST_STREAM:
-                    return ProcessRstStreamFrameAsync();
-                case Http2FrameType.SETTINGS:
-                    return ProcessSettingsFrameAsync(payload);
-                case Http2FrameType.PUSH_PROMISE:
-                    throw new Http2ConnectionErrorException(CoreStrings.Http2ErrorPushPromiseReceived, Http2ErrorCode.PROTOCOL_ERROR);
-                case Http2FrameType.PING:
-                    return ProcessPingFrameAsync(payload);
-                case Http2FrameType.GOAWAY:
-                    return ProcessGoAwayFrameAsync();
-                case Http2FrameType.WINDOW_UPDATE:
-                    return ProcessWindowUpdateFrameAsync();
-                case Http2FrameType.CONTINUATION:
-                    return ProcessContinuationFrameAsync(payload);
-                default:
-                    return ProcessUnknownFrameAsync();
-            }
+                Http2FrameType.DATA => ProcessDataFrameAsync(payload),
+                Http2FrameType.HEADERS => ProcessHeadersFrameAsync(application, payload),
+                Http2FrameType.PRIORITY => ProcessPriorityFrameAsync(),
+                Http2FrameType.RST_STREAM => ProcessRstStreamFrameAsync(),
+                Http2FrameType.SETTINGS => ProcessSettingsFrameAsync(payload),
+                Http2FrameType.PUSH_PROMISE => throw new Http2ConnectionErrorException(CoreStrings.Http2ErrorPushPromiseReceived, Http2ErrorCode.PROTOCOL_ERROR),
+                Http2FrameType.PING => ProcessPingFrameAsync(payload),
+                Http2FrameType.GOAWAY => ProcessGoAwayFrameAsync(),
+                Http2FrameType.WINDOW_UPDATE => ProcessWindowUpdateFrameAsync(),
+                Http2FrameType.CONTINUATION => ProcessContinuationFrameAsync(payload),
+                _ => ProcessUnknownFrameAsync(),
+            };
         }
 
-        private Task ProcessDataFrameAsync(ReadOnlySequence<byte> payload)
+        private Task ProcessDataFrameAsync(in ReadOnlySequence<byte> payload)
         {
             if (_currentHeadersStream != null)
             {
@@ -473,7 +468,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             throw new Http2ConnectionErrorException(CoreStrings.FormatHttp2ErrorStreamClosed(_incomingFrame.Type, _incomingFrame.StreamId), Http2ErrorCode.STREAM_CLOSED);
         }
 
-        private Task ProcessHeadersFrameAsync<TContext>(IHttpApplication<TContext> application, ReadOnlySequence<byte> payload)
+        private Task ProcessHeadersFrameAsync<TContext>(IHttpApplication<TContext> application, in ReadOnlySequence<byte> payload)
         {
             if (_currentHeadersStream != null)
             {
@@ -640,7 +635,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             return Task.CompletedTask;
         }
 
-        private Task ProcessSettingsFrameAsync(ReadOnlySequence<byte> payload)
+        private Task ProcessSettingsFrameAsync(in ReadOnlySequence<byte> payload)
         {
             if (_currentHeadersStream != null)
             {
@@ -711,7 +706,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             }
         }
 
-        private Task ProcessPingFrameAsync(ReadOnlySequence<byte> payload)
+        private Task ProcessPingFrameAsync(in ReadOnlySequence<byte> payload)
         {
             if (_currentHeadersStream != null)
             {
@@ -818,7 +813,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             return Task.CompletedTask;
         }
 
-        private Task ProcessContinuationFrameAsync(ReadOnlySequence<byte> payload)
+        private Task ProcessContinuationFrameAsync(in ReadOnlySequence<byte> payload)
         {
             if (_currentHeadersStream == null)
             {
@@ -857,7 +852,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             return Task.CompletedTask;
         }
 
-        private Task DecodeHeadersAsync(bool endHeaders, ReadOnlySequence<byte> payload)
+        private Task DecodeHeadersAsync(bool endHeaders, in ReadOnlySequence<byte> payload)
         {
             try
             {
@@ -879,7 +874,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             return Task.CompletedTask;
         }
 
-        private Task DecodeTrailersAsync(bool endHeaders, ReadOnlySequence<byte> payload)
+        private Task DecodeTrailersAsync(bool endHeaders, in ReadOnlySequence<byte> payload)
         {
             _hpackDecoder.Decode(payload, endHeaders, handler: this);
 

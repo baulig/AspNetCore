@@ -41,36 +41,44 @@ namespace Templates.Test.Helpers
         public ITestOutputHelper Output { get; set; }
         public IMessageSink DiagnosticsMessageSink { get; set; }
 
-        internal async Task<ProcessEx> RunDotNetNewAsync(string templateName, string auth = null, string language = null, bool useLocalDB = false, bool noHttps = false)
+        internal async Task<ProcessEx> RunDotNetNewAsync(string templateName, string auth = null, string language = null, bool useLocalDB = false, bool noHttps = false, string[] args = null)
         {
             var hiveArg = $"--debug:custom-hive \"{TemplatePackageInstaller.CustomHivePath}\"";
-            var args = $"new {templateName} {hiveArg}";
+            var argString = $"new {templateName} {hiveArg}";
 
             if (!string.IsNullOrEmpty(auth))
             {
-                args += $" --auth {auth}";
+                argString += $" --auth {auth}";
             }
 
             if (!string.IsNullOrEmpty(language))
             {
-                args += $" -lang {language}";
+                argString += $" -lang {language}";
             }
 
             if (useLocalDB)
             {
-                args += $" --use-local-db";
+                argString += $" --use-local-db";
             }
 
             if (noHttps)
             {
-                args += $" --no-https";
+                argString += $" --no-https";
+            }
+
+            if (args != null)
+            {
+                foreach (var arg in args)
+                {
+                    argString += " " + arg;
+                }
             }
 
             // Save a copy of the arguments used for better diagnostic error messages later.
             // We omit the hive argument and the template output dir as they are not relevant and add noise.
-            ProjectArguments = args.Replace(hiveArg, "");
+            ProjectArguments = argString.Replace(hiveArg, "");
 
-            args += $" -o {TemplateOutputDir}";
+            argString += $" -o {TemplateOutputDir}";
 
             // Only run one instance of 'dotnet new' at once, as a workaround for
             // https://github.com/aspnet/templating/issues/63
@@ -78,7 +86,7 @@ namespace Templates.Test.Helpers
             await DotNetNewLock.WaitAsync();
             try
             {
-                var execution = ProcessEx.Run(Output, AppContext.BaseDirectory, DotNetMuxer.MuxerPathOrDefault(), args);
+                var execution = ProcessEx.Run(Output, AppContext.BaseDirectory, DotNetMuxer.MuxerPathOrDefault(), argString);
                 await execution.Exited;
                 return execution;
             }
@@ -179,27 +187,29 @@ namespace Templates.Test.Helpers
             return new AspNetProcess(Output, TemplateClientReleaseDir, projectDll, environment);
         }
 
-        internal AspNetProcess StartBuiltProjectAsync()
+        internal AspNetProcess StartBuiltProjectAsync(bool hasListeningUri = true)
         {
             var environment = new Dictionary<string, string>
             {
                 ["ASPNETCORE_URLS"] = _urls,
-                ["ASPNETCORE_ENVIRONMENT"] = "Development"
+                ["ASPNETCORE_ENVIRONMENT"] = "Development",
+                ["ASPNETCORE_Kestrel__EndpointDefaults__Protocols"] = "Http1"
             };
 
             var projectDll = Path.Combine(TemplateBuildDir, $"{ProjectName}.dll");
-            return new AspNetProcess(Output, TemplateOutputDir, projectDll, environment);
+            return new AspNetProcess(Output, TemplateOutputDir, projectDll, environment, hasListeningUri: hasListeningUri);
         }
 
-        internal AspNetProcess StartPublishedProjectAsync()
+        internal AspNetProcess StartPublishedProjectAsync(bool hasListeningUri = true)
         {
             var environment = new Dictionary<string, string>
             {
                 ["ASPNETCORE_URLS"] = _urls,
+                ["ASPNETCORE_Kestrel__EndpointDefaults__Protocols"] = "Http1"
             };
 
             var projectDll = $"{ProjectName}.dll";
-            return new AspNetProcess(Output, TemplatePublishDir, projectDll, environment);
+            return new AspNetProcess(Output, TemplatePublishDir, projectDll, environment, hasListeningUri: hasListeningUri);
         }
 
         internal async Task<ProcessEx> RestoreWithRetryAsync(ITestOutputHelper output, string workingDirectory)

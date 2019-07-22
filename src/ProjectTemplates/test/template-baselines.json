@@ -871,19 +871,30 @@
     }
   },
   "razorclasslib": {
-    "None": {
+    "ComponentsOnly": {
       "Template": "razorclasslib",
       "Arguments": "new razorclasslib",
+      "Files": [
+        "wwwroot/background.png",
+        "wwwroot/exampleJsInterop.js",
+        "wwwroot/styles.css",
+        "Component1.razor",
+        "ExampleJsInterop.cs"
+      ]
+    },
+    "ViewsOnly": {
+      "Template": "razorclasslib",
+      "Arguments": "new razorclasslib --support-pages-and-views true",
       "Files": [
         "Areas/MyFeature/Pages/Page1.cshtml",
         "Areas/MyFeature/Pages/Page1.cshtml.cs"
       ]
     }
   },
-  "razorcomponents": {
+  "blazorserver": {
     "Individual": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au Individual",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au Individual",
       "Files": [
         "app.db",
         "App.razor",
@@ -894,6 +905,7 @@
         "_Imports.razor",
         "Areas/Identity/Pages/Account/LogOut.cshtml",
         "Areas/Identity/Pages/Shared/_LoginPartial.cshtml",
+        "Areas/Identity/RevalidatingAuthenticationStateProvider.cs",
         "Data/ApplicationDbContext.cs",
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
@@ -901,6 +913,7 @@
         "Data/Migrations/00000000000000_CreateIdentitySchema.Designer.cs",
         "Data/Migrations/ApplicationDbContextModelSnapshot.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
@@ -925,8 +938,8 @@
       ]
     },
     "IndividualB2C": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au IndividualB2C",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au IndividualB2C",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -937,6 +950,7 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
@@ -961,8 +975,8 @@
       ]
     },
     "MultiOrg": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au MultiOrg",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au MultiOrg",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -973,6 +987,7 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
@@ -997,8 +1012,8 @@
       ]
     },
     "None": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -1008,6 +1023,7 @@
         "_Imports.razor",
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
+        "Pages/Error.razor",
         "Pages/Counter.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
@@ -1032,8 +1048,8 @@
       ]
     },
     "SingleOrg": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au SingleOrg",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au SingleOrg",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -1044,6 +1060,7 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
@@ -1068,8 +1085,8 @@
       ]
     },
     "Windows": {
-      "Template": "blazorserverside",
-      "Arguments": "new blazorserverside -au Windows",
+      "Template": "blazorserver",
+      "Arguments": "new blazorserver -au Windows",
       "Files": [
         "App.razor",
         "appsettings.Development.json",
@@ -1080,6 +1097,7 @@
         "Data/WeatherForecast.cs",
         "Data/WeatherForecastService.cs",
         "Pages/Counter.razor",
+        "Pages/Error.razor",
         "Pages/FetchData.razor",
         "Pages/Index.razor",
         "Pages/_Host.cshtml",
@@ -1143,7 +1161,7 @@
         "ClientApp/src/assets/.gitkeep",
         "ClientApp/src/environments/environment.prod.ts",
         "ClientApp/src/environments/environment.ts",
-        "ClientApp/src/browserslist",
+        "ClientApp/browserslist",
         "ClientApp/src/index.html",
         "ClientApp/src/karma.conf.js",
         "ClientApp/src/main.ts",
@@ -1234,6 +1252,7 @@
         "ClientApp/src/store/WeatherForecasts.ts",
         "ClientApp/src/App.tsx",
         "ClientApp/src/App.test.tsx",
+        "ClientApp/src/custom.css",
         "ClientApp/src/index.tsx",
         "ClientApp/src/react-app-env.d.ts",
         "ClientApp/src/registerServiceWorker.ts",

@@ -113,6 +113,10 @@ namespace Templates.Test.SpaTemplateTest
                     aspNetProcess.VisitInBrowser(browser);
                     TestBasicNavigation(visitFetchData: shouldVisitFetchData, usesAuth, browser, logs);
                 }
+                else
+                {
+                    BrowserFixture.EnforceSupportedConfigurations();
+                }
             }
 
             if (usesAuth)
@@ -134,6 +138,10 @@ namespace Templates.Test.SpaTemplateTest
                     var (browser, logs) = await BrowserFixture.GetOrCreateBrowserAsync(Output, $"{Project.ProjectName}.publish");
                     aspNetProcess.VisitInBrowser(browser);
                     TestBasicNavigation(visitFetchData: shouldVisitFetchData, usesAuth, browser, logs);
+                }
+                else
+                {
+                    BrowserFixture.EnforceSupportedConfigurations();
                 }
             }
         }
@@ -195,7 +203,7 @@ namespace Templates.Test.SpaTemplateTest
         {
             browser.Exists(By.TagName("ul"));
             // <title> element gets project ID injected into it during template execution
-            browser.Contains(Project.ProjectGuid, () => browser.Title);
+            browser.Contains(Project.ProjectGuid.Replace(".", "._"), () => browser.Title);
 
             // Initially displays the home page
             browser.Equal("Hello, world!", () => browser.FindElement(By.TagName("h1")).Text);
@@ -246,7 +254,8 @@ namespace Templates.Test.SpaTemplateTest
 
                 badEntries = badEntries.Where(e =>
                     !e.Message.Contains("failed: WebSocket is closed before the connection is established.")
-                    && !e.Message.Contains("[WDS] Disconnected!"));
+                    && !e.Message.Contains("[WDS] Disconnected!")
+                    && !e.Message.Contains("Timed out connecting to Chrome, retrying"));
 
                 Assert.True(badEntries.Count() == 0, "There were Warnings or Errors from the browser." + Environment.NewLine + string.Join(Environment.NewLine, badEntries));
             }

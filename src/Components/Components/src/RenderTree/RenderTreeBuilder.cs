@@ -5,7 +5,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Rendering;
 
 namespace Microsoft.AspNetCore.Components.RenderTree
@@ -18,14 +17,14 @@ namespace Microsoft.AspNetCore.Components.RenderTree
     /// <summary>
     /// Provides methods for building a collection of <see cref="RenderTreeFrame"/> entries.
     /// </summary>
-    public class RenderTreeBuilder
+    public class RenderTreeBuilder : IDisposable
     {
         private readonly static object BoxedTrue = true;
         private readonly static object BoxedFalse = false;
         private readonly static string ComponentReferenceCaptureInvalidParentMessage = $"Component reference captures may only be added as children of frames of type {RenderTreeFrameType.Component}";
 
         private readonly Renderer _renderer;
-        private readonly ArrayBuilder<RenderTreeFrame> _entries = new ArrayBuilder<RenderTreeFrame>(10);
+        private readonly ArrayBuilder<RenderTreeFrame> _entries = new ArrayBuilder<RenderTreeFrame>();
         private readonly Stack<int> _openElementIndices = new Stack<int>();
         private RenderTreeFrameType? _lastNonAttributeFrameType;
         private bool _hasSeenAddMultipleAttributes;
@@ -226,23 +225,6 @@ namespace Microsoft.AspNetCore.Components.RenderTree
 
         /// <summary>
         /// <para>
-        /// Appends a frame representing an <see cref="Action{UIEventArgs}"/>-valued attribute.
-        /// </para>
-        /// <para>
-        /// The attribute is associated with the most recently added element. If the value is <c>null</c> and the
-        /// current element is not a component, the frame will be omitted.
-        /// </para>
-        /// </summary>
-        /// <param name="sequence">An integer that represents the position of the instruction in the source code.</param>
-        /// <param name="name">The name of the attribute.</param>
-        /// <param name="value">The value of the attribute.</param>
-        public void AddAttribute(int sequence, string name, Action<UIEventArgs> value)
-        {
-            AddAttribute(sequence, name, (MulticastDelegate)value);
-        }
-
-        /// <summary>
-        /// <para>
         /// Appends a frame representing a <see cref="Func{Task}"/>-valued attribute.
         /// </para>
         /// <para>
@@ -260,23 +242,6 @@ namespace Microsoft.AspNetCore.Components.RenderTree
 
         /// <summary>
         /// <para>
-        /// Appends a frame representing a <see cref="Func{UIEventArgs, Task}"/>-valued attribute.
-        /// </para>
-        /// <para>
-        /// The attribute is associated with the most recently added element. If the value is <c>null</c> and the
-        /// current element is not a component, the frame will be omitted.
-        /// </para>
-        /// </summary>
-        /// <param name="sequence">An integer that represents the position of the instruction in the source code.</param>
-        /// <param name="name">The name of the attribute.</param>
-        /// <param name="value">The value of the attribute.</param>
-        public void AddAttribute(int sequence, string name, Func<UIEventArgs, Task> value)
-        {
-            AddAttribute(sequence, name, (MulticastDelegate)value);
-        }
-
-        /// <summary>
-        /// <para>
         /// Appends a frame representing a delegate-valued attribute.
         /// </para>
         /// <para>
@@ -287,14 +252,6 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         /// <param name="sequence">An integer that represents the position of the instruction in the source code.</param>
         /// <param name="name">The name of the attribute.</param>
         /// <param name="value">The value of the attribute.</param>
-        /// <remarks>
-        /// This method is provided for infrastructure purposes, and is used to be
-        /// <see cref="UIEventArgsRenderTreeBuilderExtensions"/> to provide support for delegates of specific
-        /// types. For a good programming experience when using a custom delegate type, define an
-        /// extension method similar to
-        /// <see cref="UIEventArgsRenderTreeBuilderExtensions.AddAttribute(RenderTreeBuilder, int, string, Action{UIChangeEventArgs})"/>
-        /// that calls this method.
-        /// </remarks>
         public void AddAttribute(int sequence, string name, MulticastDelegate value)
         {
             AssertCanAddAttribute();
@@ -566,7 +523,9 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         {
             if (value == null)
             {
-                throw new ArgumentNullException(nameof(value));
+                // Null is equivalent to not having set a key, which is valuable because Razor syntax doesn't have an
+                // easy way to have conditional directive attributes
+                return;
             }
 
             var parentFrameIndex = GetCurrentParentFrameIndex();
@@ -628,7 +587,7 @@ namespace Microsoft.AspNetCore.Components.RenderTree
         /// </summary>
         /// <param name="sequence">An integer that represents the position of the instruction in the source code.</param>
         /// <param name="elementReferenceCaptureAction">An action to be invoked whenever the reference value changes.</param>
-        public void AddElementReferenceCapture(int sequence, Action<ElementRef> elementReferenceCaptureAction)
+        public void AddElementReferenceCapture(int sequence, Action<ElementReference> elementReferenceCaptureAction)
         {
             if (GetCurrentParentFrameType() != RenderTreeFrameType.Element)
             {
@@ -660,17 +619,21 @@ namespace Microsoft.AspNetCore.Components.RenderTree
             Append(RenderTreeFrame.ComponentReferenceCapture(sequence, componentReferenceCaptureAction, parentFrameIndexValue));
         }
 
-        // Internal for tests
-        // Not public because there's no current use case for user code defining regions arbitrarily.
-        // Currently the sole use case for regions is when appending a RenderFragment.
-        internal void OpenRegion(int sequence)
+        /// <summary>
+        /// Appends a frame representing a region of frames.
+        /// </summary>
+        /// <param name="sequence">An integer that represents the position of the instruction in the source code.</param>
+        public void OpenRegion(int sequence)
         {
             _openElementIndices.Push(_entries.Count);
             Append(RenderTreeFrame.Region(sequence));
         }
 
-        // See above for why this is not public
-        internal void CloseRegion()
+        /// <summary>
+        /// Marks a previously appended region frame as closed. Calls to this method
+        /// must be balanced with calls to <see cref="OpenRegion(int)"/>.
+        /// </summary>
+        public void CloseRegion()
         {
             var indexOfEntryBeingClosed = _openElementIndices.Pop();
             ref var entry = ref _entries.Buffer[indexOfEntryBeingClosed];
@@ -836,6 +799,11 @@ namespace Microsoft.AspNetCore.Components.RenderTree
 
             var seenAttributeNames = (_seenAttributeNames ??= new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase));
             seenAttributeNames[name] = _entries.Count; // See comment in ProcessAttributes for why this is OK.
+        }
+
+        void IDisposable.Dispose()
+        {
+            _entries.Dispose();
         }
     }
 }

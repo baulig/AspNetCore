@@ -6,7 +6,8 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Browser;
+using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.SignalR.Client;
 
 namespace Ignitor
@@ -62,20 +63,35 @@ namespace Ignitor
             _events[eventName] = descriptor;
         }
 
-        public class ElementEventDescriptor
+        internal Task SelectAsync(HubConnection connection, string value)
         {
-            public ElementEventDescriptor(string eventName, int eventId)
+            if (!Events.TryGetValue("change", out var changeEventDescriptor))
             {
-                EventName = eventName ?? throw new ArgumentNullException(nameof(eventName));
-                EventId = eventId;
+                throw new InvalidOperationException("Element does not have a change event.");
             }
 
-            public string EventName { get; }
+            var sleectEventArgs = new UIChangeEventArgs()
+            {
+                Type = changeEventDescriptor.EventName,
+                Value = value
+            };
 
-            public int EventId { get; }
+            var browserDescriptor = new RendererRegistryEventDispatcher.BrowserEventDescriptor()
+            {
+                BrowserRendererId = 0,
+                EventHandlerId = changeEventDescriptor.EventId,
+                EventArgsType = "change",
+                EventFieldInfo = new EventFieldInfo
+                {
+                    ComponentId = 0,
+                    FieldValue = value
+                }
+            };
+
+            return DispatchEventCore(connection, Serialize(browserDescriptor), Serialize(sleectEventArgs));
         }
 
-        public async Task ClickAsync(HubConnection connection)
+        public Task ClickAsync(HubConnection connection)
         {
             if (!Events.TryGetValue("click", out var clickEventDescriptor))
             {
@@ -93,14 +109,27 @@ namespace Ignitor
                 EventHandlerId = clickEventDescriptor.EventId,
                 EventArgsType = "mouse",
             };
-            var serializedJson = JsonSerializer.ToString(mouseEventArgs, new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-            var argsObject = new object[] { browserDescriptor, serializedJson };
-            var callId = "0";
-            var assemblyName = "Microsoft.AspNetCore.Components.Browser";
-            var methodIdentifier = "DispatchEvent";
-            var dotNetObjectId = 0;
-            var clickArgs = JsonSerializer.ToString(argsObject, new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
-            await connection.InvokeAsync("BeginInvokeDotNetFromJS", callId, assemblyName, methodIdentifier, dotNetObjectId, clickArgs);
+
+            return DispatchEventCore(connection, Serialize(browserDescriptor), Serialize(mouseEventArgs));
+        }
+
+        private static string Serialize<T>(T payload) =>
+             JsonSerializer.Serialize(payload, new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+
+        private static Task DispatchEventCore(HubConnection connection, string descriptor, string eventArgs) =>
+            connection.InvokeAsync("DispatchBrowserEvent", descriptor, eventArgs);
+
+        public class ElementEventDescriptor
+        {
+            public ElementEventDescriptor(string eventName, ulong eventId)
+            {
+                EventName = eventName ?? throw new ArgumentNullException(nameof(eventName));
+                EventId = eventId;
+            }
+
+            public string EventName { get; }
+
+            public ulong EventId { get; }
         }
     }
 }
