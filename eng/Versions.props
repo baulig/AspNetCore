@@ -257,10 +257,6 @@
     <RestoreSources Condition=" '$(DotNetBuildOffline)' != 'true' ">
       $(RestoreSources);
       https://dotnetfeed.blob.core.windows.net/dotnet-core/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-blazor/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-extensions/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-entityframeworkcore/index.json;
-      https://dotnetfeed.blob.core.windows.net/aspnet-aspnetcore-tooling/index.json;
       https://grpc.jfrog.io/grpc/api/nuget/v3/grpc-nuget-dev;
     </RestoreSources>
     <RestoreSources Condition="'$(DotNetBuildOffline)' != 'true' AND $(MicrosoftNetCompilersToolsetPackageVersion.Contains('-')) ">
@@ -273,6 +269,9 @@
       $(LocalBuildRoot)/Blazor/artifacts/packages/Debug/Shipping/;
       $(LocalBuildRoot)/Extensions/artifacts/packages/Debug/Shipping/;
       $(LocalBuildRoot)/Extensions/artifacts/packages/Debug/NonShipping/;
+      $(LocalBuildRoot)/AspNetCore-Tooling/artifacts/packages/Debug/Shipping/;
+      $(LocalBuildRoot)/AspNetCore-Tooling/artifacts/packages/Debug/NonShipping/;
+      $(LocalBuildRoot)/EntityFrameworkCore/artifacts/packages/Debug/Shipping/;
       https://dotnet.myget.org/F/aspnetcore-dev/api/v3/index.json;
     </RestoreSources>
     <!-- In an orchestrated build, this may be overriden to other Azure feeds. -->
